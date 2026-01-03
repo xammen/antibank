@@ -3,6 +3,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@antibank/db";
 import { Decimal } from "@prisma/client/runtime/library";
+import type { Prisma } from "@prisma/client";
 import { rollDice, determineWinner, calculateDiceWinnings, DICE_CONFIG } from "@/lib/dice";
 import { revalidatePath } from "next/cache";
 
@@ -131,7 +132,7 @@ export async function acceptDiceChallenge(
       : game.player2Id;
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Déduire les mises
       await tx.user.update({
         where: { id: game.player1Id },
@@ -359,7 +360,7 @@ export async function playDiceVsBot(amount: number): Promise<PlayVsBotResult> {
   const profit = winnings - amount;
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Déduire la mise
       await tx.user.update({
         where: { id: session.user.id },

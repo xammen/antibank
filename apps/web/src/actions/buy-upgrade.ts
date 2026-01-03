@@ -5,6 +5,7 @@ import { prisma } from "@antibank/db";
 import { UPGRADES, getPriceForLevel } from "@/lib/upgrades";
 import { Decimal } from "@prisma/client/runtime/library";
 import { revalidatePath } from "next/cache";
+import type { Prisma } from "@prisma/client";
 
 export interface BuyResult {
   success: boolean;
@@ -26,7 +27,7 @@ export async function buyUpgrade(upgradeId: string): Promise<BuyResult> {
 
   // Transaction atomique
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Get user avec ses upgrades
       const user = await tx.user.findUnique({
         where: { id: session.user.id },

@@ -3,6 +3,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@antibank/db";
 import { Decimal } from "@prisma/client/runtime/library";
+import type { Prisma } from "@prisma/client";
 import { 
   determinePFCWinner, 
   calculatePFCWinnings, 
@@ -210,7 +211,7 @@ export async function makePFCChoice(
 
   const penalty = calculatePenalty(recentGames);
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const player1Winnings = calculatePFCWinnings(amount, result, true, penalty);
     const player2Winnings = calculatePFCWinnings(amount, result, false, penalty);
 
@@ -317,7 +318,7 @@ export async function playPFCVsBot(
   const profit = winnings - amount;
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Déduire la mise
       await tx.user.update({
         where: { id: session.user.id },
