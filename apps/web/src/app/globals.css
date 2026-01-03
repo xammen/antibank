@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* AntiBank custom */
+  --bg: #0a0a0a;
+  --text: #e0e0e0;
+  --text-muted: #888;
+  --hover: #333;
+  --line: #555;
+  
+  /* shadcn mapped to dark theme */
+  --background: 0 0% 4%;
+  --foreground: 0 0% 88%;
+  --card: 0 0% 6%;
+  --card-foreground: 0 0% 88%;
+  --popover: 0 0% 6%;
+  --popover-foreground: 0 0% 88%;
+  --primary: 142 76% 36%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 0 0% 12%;
+  --secondary-foreground: 0 0% 88%;
+  --muted: 0 0% 12%;
+  --muted-foreground: 0 0% 53%;
+  --accent: 0 0% 12%;
+  --accent-foreground: 0 0% 88%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 20%;
+  --input: 0 0% 20%;
+  --ring: 142 76% 36%;
+  --chart-1: 142 76% 46%;
+  --chart-2: 160 60% 45%;
+  --chart-3: 30 80% 55%;
+  --chart-4: 280 65% 60%;
+  --chart-5: 340 75% 55%;
+  --radius: 0.5rem;
+}
+
+body {
+  min-height: 100vh;
+  font-family: var(--font-mono), monospace;
+  font-weight: 300;
+  background: var(--bg);
+  color: var(--text);
+}
+
+::selection {
+  background: var(--hover);
+  color: var(--text);
+}
+
+a {
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: var(--text);
+}
+
+button {
+  font-family: inherit;
+  font-weight: 300;
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: inherit;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes floatUp {
+  0% {
+    opacity: 0;
+    transform: translateY(0) translateX(-50%) scale(0.5);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(-20px) translateX(-50%) scale(1.1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-70px) translateX(-50%) scale(0.9);
+  }
+}
+
+.animate-float-up {
+  animation: floatUp 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes ripple {
+  0% {
+    width: 0;
+    height: 0;
+    opacity: 0.5;
+  }
+  100% {
+    width: 200px;
+    height: 200px;
+    opacity: 0;
+  }
+}
+
+.animate-ripple {
+  animation: ripple 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0) rotate(0); }
+  25% { transform: translateX(-2px) rotate(-0.5deg); }
+  50% { transform: translateX(2px) rotate(0.5deg); }
+  75% { transform: translateX(-1px) rotate(-0.3deg); }
+}
+
+.animate-shake {
+  animation: shake 0.1s infinite;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+}
