@@ -198,7 +198,7 @@ export async function makePFCChoice(
       : game.player2Id;
 
   // Check anti-spam
-  const recentGames = await prisma.pFCGame.count({
+  const recentGames = game.player2Id ? await prisma.pFCGame.count({
     where: {
       status: "completed",
       completedAt: { gte: new Date(Date.now() - PFC_CONFIG.ANTI_SPAM_WINDOW_MS) },
@@ -207,7 +207,7 @@ export async function makePFCChoice(
         { player1Id: game.player2Id, player2Id: game.player1Id },
       ],
     },
-  });
+  }) : 0;
 
   const penalty = calculatePenalty(recentGames);
 
