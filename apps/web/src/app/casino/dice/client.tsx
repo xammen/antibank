@@ -72,7 +72,7 @@ interface Player {
 
 interface Challenge {
   id: string;
-  amount: string;
+  amount: unknown;
   player1?: { id: string; discordUsername: string } | null;
   player2?: { id: string; discordUsername: string } | null;
 }
@@ -315,7 +315,7 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
                         <div key={c.id} className="flex items-center justify-between p-4 border border-[var(--line)] mb-2">
                           <div>
                             <p className="text-sm">{c.player1?.discordUsername?.toLowerCase()}</p>
-                            <p className="text-xs text-[var(--text-muted)] font-mono">{c.amount}e</p>
+                            <p className="text-xs text-[var(--text-muted)] font-mono">{String(c.amount)}e</p>
                           </div>
                           <button
                             onClick={() => handleAccept(c)}
@@ -337,7 +337,7 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
                         <div key={c.id} className="flex items-center justify-between p-4 border border-[var(--line)] opacity-60 mb-2">
                           <div>
                             <p className="text-sm">{c.player2?.discordUsername?.toLowerCase()}</p>
-                            <p className="text-xs text-[var(--text-muted)] font-mono">{c.amount}e</p>
+                            <p className="text-xs text-[var(--text-muted)] font-mono">{String(c.amount)}e</p>
                           </div>
                           <span className="text-xs text-[var(--text-muted)]">...</span>
                         </div>
