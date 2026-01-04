@@ -40,7 +40,7 @@ export async function buyUpgrade(upgradeId: string): Promise<BuyResult> {
 
       // Trouver l'upgrade existant ou créer
       const existingUpgrade = user.upgrades.find(
-        (u) => u.upgradeId === upgradeId
+        (u: { upgradeId: string; level: number }) => u.upgradeId === upgradeId
       );
       const currentLevel = existingUpgrade?.level || 0;
 
