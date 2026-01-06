@@ -1,16 +1,11 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["300", "400"],
-  variable: "--font-mono",
-});
+export const runtime = 'edge';
 
 export const metadata: Metadata = {
   title: "antibank",
-  description: "fake money, real chaos",
+  description: "fake economy discord bot",
 };
 
 export default function RootLayout({
