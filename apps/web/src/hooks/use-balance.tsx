@@ -25,8 +25,14 @@ export function BalanceProvider({
   const [intensity, setIntensity] = useState(0);
   const clickTimes = useRef<number[]>([]);
   const animationRef = useRef<number | null>(null);
+  const currentDisplayRef = useRef<number>(parseFloat(initialBalance));
 
   const animateBalance = useCallback((from: number, to: number) => {
+    // Skip si la différence est négligeable
+    if (Math.abs(from - to) < 0.001) {
+      return;
+    }
+    
     if (animationRef.current) {
       cancelAnimationFrame(animationRef.current);
     }
@@ -43,6 +49,7 @@ export function BalanceProvider({
       const current = from + (to - from) * eased;
       
       setDisplayBalance(current);
+      currentDisplayRef.current = current;
       
       if (progress < 1) {
         animationRef.current = requestAnimationFrame(animate);
@@ -54,9 +61,10 @@ export function BalanceProvider({
 
   const setBalance = useCallback((newBalance: string) => {
     const newValue = parseFloat(newBalance);
-    animateBalance(displayBalance, newValue);
+    // Utilise la ref pour avoir la vraie valeur actuelle
+    animateBalance(currentDisplayRef.current, newValue);
     setBalanceState(newBalance);
-  }, [displayBalance, animateBalance]);
+  }, [animateBalance]);
 
   const addToBalance = useCallback((amount: number) => {
     // Track click times for intensity
@@ -71,10 +79,11 @@ export function BalanceProvider({
 
     setBalanceState((prev) => {
       const newValue = parseFloat(prev) + amount;
-      animateBalance(displayBalance, newValue);
+      // Utilise la ref pour avoir la vraie valeur actuelle
+      animateBalance(currentDisplayRef.current, newValue);
       return newValue.toFixed(2);
     });
-  }, [displayBalance, animateBalance]);
+  }, [animateBalance]);
 
   // Smooth decay of intensity
   useEffect(() => {
@@ -93,12 +102,13 @@ export function BalanceProvider({
       const res = await fetch("/api/balance");
       const data = await res.json();
       const newValue = parseFloat(data.balance);
-      animateBalance(displayBalance, newValue);
+      // Utilise la ref pour avoir la vraie valeur actuelle
+      animateBalance(currentDisplayRef.current, newValue);
       setBalanceState(data.balance);
     } catch {
       // Ignore errors
     }
-  }, [displayBalance, animateBalance]);
+  }, [animateBalance]);
 
   return (
     <BalanceContext.Provider value={{ 
