@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "dev:party": "partykit dev",
-    "build": "next build",
+    "build": "prisma generate --schema=../../packages/db/prisma/schema.prisma && next build",
     "build:cf": "npx @cloudflare/next-on-pages",
     "start": "next start",
     "lint": "next lint",
@@ -28,6 +28,7 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "prisma": "^6.8.2",
     "@cloudflare/next-on-pages": "^1.13.16",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
