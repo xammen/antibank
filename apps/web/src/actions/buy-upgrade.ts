@@ -1,7 +1,7 @@
 "use server";
 
 import { auth } from "@/lib/auth";
-import { prisma, Prisma } from "@antibank/db";
+import { prisma } from "@antibank/db";
 import { UPGRADES, getPriceForLevel } from "@/lib/upgrades";
 import { revalidatePath } from "next/cache";
 
@@ -25,7 +25,7 @@ export async function buyUpgrade(upgradeId: string): Promise<BuyResult> {
 
   // Transaction atomique
   try {
-    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const result = await prisma.$transaction(async (tx) => {
       // Get user avec ses upgrades
       const user = await tx.user.findUnique({
         where: { id: session.user.id },
@@ -57,7 +57,7 @@ export async function buyUpgrade(upgradeId: string): Promise<BuyResult> {
       }
 
       // Déduire le montant
-      const newBalance = new Prisma.Decimal(balance - price);
+      const newBalance = balance - price;
 
       await tx.user.update({
         where: { id: user.id },
@@ -87,7 +87,7 @@ export async function buyUpgrade(upgradeId: string): Promise<BuyResult> {
         data: {
           userId: user.id,
           type: "shop",
-          amount: new Prisma.Decimal(-price),
+          amount: -price,
           description: `Achat: ${upgrade.name} (niveau ${newLevel})`,
         },
       });
