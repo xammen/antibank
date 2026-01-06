@@ -1,12 +1,16 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import Image from "next/image";
 import { clickBatch } from "@/actions/click";
 import { useBalance } from "@/hooks/use-balance";
+
+export type ClickerIcon = "cookie" | "cookie-bw" | "cookie-cute";
 
 interface ClickerProps {
   userId: string;
   clickValue?: number; // valeur par clic (avec upgrades)
+  icon?: ClickerIcon;
 }
 
 interface FloatingNumber {
@@ -17,7 +21,7 @@ interface FloatingNumber {
 
 let floatId = 0;
 
-export function Clicker({ userId, clickValue = 0.01 }: ClickerProps) {
+export function Clicker({ userId, clickValue = 0.01, icon = "cookie" }: ClickerProps) {
   const [clickEffect, setClickEffect] = useState(false);
   const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -220,7 +224,14 @@ export function Clicker({ userId, clickValue = 0.01 }: ClickerProps) {
               }}
             />
           ))}
-          <span className="relative z-10">$</span>
+          <Image
+            src={`/icons/${icon}.png`}
+            alt="clicker"
+            width={80}
+            height={80}
+            className="relative z-10 pointer-events-none select-none"
+            draggable={false}
+          />
         </button>
       </div>
 

@@ -1,9 +1,10 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Clicker } from "@/components/clicker";
+import { Clicker, type ClickerIcon } from "@/components/clicker";
 import { Balance } from "@/components/balance";
 import { SignOutButton } from "@/components/sign-out-button";
 import { VoiceStatus } from "@/components/voice-status";
+import { IconPicker } from "@/components/icon-picker";
 import { prisma } from "@antibank/db";
 import { calculateClickBonus, calculatePassiveBonus, calculateVocalBonus } from "@/lib/upgrades";
 import Link from "next/link";
@@ -15,21 +16,24 @@ export default async function Dashboard() {
     redirect("/");
   }
 
-  // Récupérer les upgrades du user pour afficher les stats
-  const userUpgrades = await prisma.userUpgrade.findMany({
-    where: { userId: session.user.id },
+  // Récupérer le user avec ses upgrades
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    include: { upgrades: true },
   });
 
-  const upgradeData = userUpgrades.map((u) => ({
+  const upgradeData = user?.upgrades.map((u) => ({
     upgradeId: u.upgradeId,
     level: u.level,
-  }));
+  })) || [];
 
   const clickBonus = calculateClickBonus(upgradeData);
   const passiveBonus = calculatePassiveBonus(upgradeData);
   const vocalBonus = calculateVocalBonus(upgradeData);
 
   const clickValue = 0.01 + clickBonus;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const clickerIcon = ((user as any)?.clickerIcon || "cookie") as ClickerIcon;
 
   return (
     <main className="min-h-screen flex flex-col items-center pt-[8vh] px-6">
@@ -43,7 +47,10 @@ export default async function Dashboard() {
               {session.user.name?.toLowerCase() || "anon"}
             </h1>
           </div>
-          <SignOutButton />
+          <div className="flex items-center gap-3">
+            <IconPicker currentIcon={clickerIcon} />
+            <SignOutButton />
+          </div>
         </header>
 
         {/* Voice Status */}
@@ -52,7 +59,7 @@ export default async function Dashboard() {
         {/* Main Action Area */}
         <div className="flex flex-col gap-8">
           <Balance initialBalance={session.user.balance} />
-          <Clicker userId={session.user.id} />
+          <Clicker userId={session.user.id} clickValue={clickValue} icon={clickerIcon} />
         </div>
 
         {/* Stats */}

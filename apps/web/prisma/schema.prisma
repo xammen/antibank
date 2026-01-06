@@ -18,6 +18,7 @@ model User {
   balance        Decimal @default(0) @db.Decimal(10, 2)
   clicksToday    Int     @default(0)
   lastClickReset DateTime @default(now())
+  clickerIcon    String  @default("cookie") // "cookie", "cookie-bw", "cookie-cute"
 
   isAdmin  Boolean @default(false)
   isBanned Boolean @default(false)
