@@ -6,11 +6,11 @@ import { calculateClickBonus } from "@/lib/upgrades";
 const BASE_CLICK_VALUE = 0.01;
 const MAX_CLICKS_PER_DAY = 1000;
 
-// Anti-triche config
-const MAX_CLICKS_PER_BATCH = 20;        // max clics par batch
-const MAX_BATCH_PER_SECOND = 3;         // max batches par seconde
+// Anti-triche config (relax)
+const MAX_CLICKS_PER_BATCH = 30;        // max clics par batch
+const MAX_BATCH_PER_SECOND = 6;         // max batches par seconde
 const WINDOW_SIZE_MS = 5000;            // fenêtre de 5 secondes
-const MAX_BATCHES_PER_5_SEC = 10;       // max batches sur 5 sec
+const MAX_BATCHES_PER_5_SEC = 20;       // max batches sur 5 sec
 
 // Stockage des timestamps de batches par utilisateur
 const batchHistory = new Map<string, number[]>();
@@ -35,11 +35,11 @@ export async function clickBatch(userId: string, count: number): Promise<ClickBa
     // Sanitize count
     count = Math.min(Math.max(1, Math.floor(count)), MAX_CLICKS_PER_BATCH);
     
-    // Check si user est flaggé suspect (cooldown de 30 sec)
+    // Check si user est flaggé suspect (cooldown de 10 sec)
     const suspiciousTime = suspiciousUsers.get(userId);
-    if (suspiciousTime && now - suspiciousTime < 30000) {
-      const remaining = Math.ceil((30000 - (now - suspiciousTime)) / 1000);
-      return { success: false, error: `spam detecte, attends ${remaining}s` };
+    if (suspiciousTime && now - suspiciousTime < 10000) {
+      const remaining = Math.ceil((10000 - (now - suspiciousTime)) / 1000);
+      return { success: false, error: `calme toi ${remaining}s` };
     }
     
     // Récupère et nettoie l'historique des batches
