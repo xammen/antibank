@@ -34,3 +34,7 @@ packages/db/generated
 # Cloudflare
 .wrangler
 .dev.vars
+
+# Build artifacts
+apps/web/.vercel/
+temp/

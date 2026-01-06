@@ -54,8 +54,14 @@ export function CrashBetPanel({
   };
 
   const handleCashOut = () => {
+    if (!userBet) return;
+    
     startTransition(async () => {
-      const result = await cashOutCrash();
+      const result = await cashOutCrash(
+        currentMultiplier,
+        userBet.profit || 0,
+        userBet.bet
+      );
       if (result.success) {
         setSuccess(`cashout x${result.multiplier?.toFixed(2)} (+${result.profit?.toFixed(2)}€)`);
         if (result.newBalance !== undefined) {

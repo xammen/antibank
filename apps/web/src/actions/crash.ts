@@ -4,7 +4,6 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@antibank/db";
 import { Decimal } from "@prisma/client/runtime/library";
 import { validateBet } from "@/lib/crash";
-import { getCrashManager } from "@/lib/crash-manager";
 import { revalidatePath } from "next/cache";
 
 export interface BetResult {
@@ -45,13 +44,7 @@ export async function placeCrashBet(amount: number): Promise<BetResult> {
     return { success: false, error: validation.error };
   }
 
-  const manager = getCrashManager();
-  
-  if (!manager.canBet()) {
-    return { success: false, error: "paris fermés" };
-  }
-
-  // Déduire la mise
+  // Déduire la mise (Partykit gère le game state, on gère juste la DB)
   try {
     await prisma.$transaction([
       prisma.user.update({
@@ -68,45 +61,27 @@ export async function placeCrashBet(amount: number): Promise<BetResult> {
       }),
     ]);
 
-    const placed = manager.placeBet(
-      user.id,
-      user.discordUsername,
-      amount
-    );
-
-    if (!placed) {
-      // Rembourser si le bet n'a pas pu être placé
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { balance: { increment: new Decimal(amount) } },
-      });
-      return { success: false, error: "impossible de placer le pari" };
-    }
-
     revalidatePath("/casino/crash");
-    return { success: true, gameId: manager.getPublicState().id };
+    return { success: true };
   } catch (error) {
     console.error("Crash bet error:", error);
     return { success: false, error: "erreur serveur" };
   }
 }
 
-export async function cashOutCrash(): Promise<CashOutResult> {
+export async function cashOutCrash(
+  multiplier: number,
+  profit: number,
+  betAmount: number
+): Promise<CashOutResult> {
   const session = await auth();
   if (!session?.user?.id) {
     return { success: false, error: "non connecté" };
   }
 
-  const manager = getCrashManager();
-  const result = manager.cashOut(session.user.id);
-
-  if (!result.success) {
-    return { success: false, error: "impossible de cash out" };
-  }
-
-  // Créditer le gain
+  // Créditer le gain (Partykit a déjà calculé le profit)
   try {
-    const winAmount = result.profit! + getPlayerBet(session.user.id);
+    const winAmount = profit + betAmount; // Profit + mise initiale
     
     const updatedUser = await prisma.user.update({
       where: { id: session.user.id },
@@ -118,25 +93,19 @@ export async function cashOutCrash(): Promise<CashOutResult> {
         userId: session.user.id,
         type: "casino_crash_win",
         amount: new Decimal(winAmount),
-        description: `Crash cashout x${result.multiplier?.toFixed(2)}`,
+        description: `Crash cashout x${multiplier.toFixed(2)}`,
       },
     });
 
     revalidatePath("/casino/crash");
     return {
       success: true,
-      multiplier: result.multiplier,
-      profit: result.profit,
+      multiplier,
+      profit,
       newBalance: Number(updatedUser.balance),
     };
   } catch (error) {
     console.error("Crash cashout error:", error);
     return { success: false, error: "erreur serveur" };
   }
-}
-
-function getPlayerBet(userId: string): number {
-  const state = getCrashManager().getPublicState();
-  const player = state.players.find((p) => p.odrzerId === userId);
-  return player?.bet || 0;
 }

@@ -1,4 +1,10 @@
 name = "antibank"
-compatibility_date = "2024-12-01"
-compatibility_flags = ["nodejs_compat"]
+compatibility_date = "2024-01-01"
 pages_build_output_dir = ".vercel/output/static"
+
+# Enable Node.js compatibility for Prisma and other Node.js modules
+compatibility_flags = ["nodejs_compat"]
+
+# Environment variables (can also be set in Cloudflare dashboard)
+[vars]
+NODE_VERSION = "22"
