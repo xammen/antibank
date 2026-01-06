@@ -71,6 +71,7 @@ export default async function CasinoPage() {
             <Link
               key={game.id}
               href={game.available ? game.href : "#"}
+              prefetch={false}
               className={`
                 flex items-center gap-4 p-5 border border-[var(--line)] 
                 bg-[rgba(255,255,255,0.01)]

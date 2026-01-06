@@ -30,7 +30,8 @@ export function VoiceStatus() {
     };
 
     fetchStatus();
-    const interval = setInterval(fetchStatus, 5000);
+    // Poll toutes les 30 sec - le bot Discord update la DB, pas besoin de plus
+    const interval = setInterval(fetchStatus, 30000);
 
     return () => clearInterval(interval);
   }, []);
