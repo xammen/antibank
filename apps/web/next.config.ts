@@ -15,6 +15,17 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "2mb",
     },
   },
+  // Cloudflare Pages: webpack config pour edge runtime
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.externals = config.externals || [];
+      // Exclure les modules Node.js incompatibles avec edge
+      config.externals.push({
+        '@prisma/client': '@prisma/client',
+      });
+    }
+    return config;
+  },
   // Cloudflare Pages: exclure le cache du build output
   outputFileTracingExcludes: {
     '*': [
