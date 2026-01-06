@@ -1,8 +1,7 @@
 "use server";
 
 import { auth } from "@/lib/auth";
-import { prisma } from "@antibank/db";
-import { Decimal } from "@prisma/client/runtime/library";
+import { prisma, Prisma } from "@antibank/db";
 import { revalidatePath } from "next/cache";
 
 const TICKET_PRICE = 1;
@@ -33,7 +32,7 @@ async function getOrCreateActiveLottery() {
 
     lottery = await prisma.lottery.create({
       data: {
-        jackpot: new Decimal(BASE_JACKPOT),
+        jackpot: new Prisma.Decimal(BASE_JACKPOT),
         status: "open",
         drawAt,
       },
@@ -83,17 +82,17 @@ export async function buyLotteryTicket(): Promise<BuyTicketResult> {
       }),
       prisma.user.update({
         where: { id: session.user.id },
-        data: { balance: { decrement: new Decimal(TICKET_PRICE) } },
+        data: { balance: { decrement: new Prisma.Decimal(TICKET_PRICE) } },
       }),
       prisma.lottery.update({
         where: { id: lottery.id },
-        data: { jackpot: { increment: new Decimal(TICKET_PRICE) } },
+        data: { jackpot: { increment: new Prisma.Decimal(TICKET_PRICE) } },
       }),
       prisma.transaction.create({
         data: {
           userId: session.user.id,
           type: "casino_lottery",
-          amount: new Decimal(-TICKET_PRICE),
+          amount: new Prisma.Decimal(-TICKET_PRICE),
           description: "Ticket de loterie",
         },
       }),
@@ -182,14 +181,14 @@ export async function drawLottery(lotteryId: string) {
   await prisma.$transaction([
     prisma.user.update({
       where: { id: winnerTicket.userId },
-      data: { balance: { increment: new Decimal(prize) } },
+      data: { balance: { increment: new Prisma.Decimal(prize) } },
     }),
     prisma.lottery.update({
       where: { id: lotteryId },
       data: {
         status: "completed",
         winnerId: winnerTicket.userId,
-        winnerPrize: new Decimal(prize),
+        winnerPrize: new Prisma.Decimal(prize),
         completedAt: new Date(),
       },
     }),
@@ -197,7 +196,7 @@ export async function drawLottery(lotteryId: string) {
       data: {
         userId: winnerTicket.userId,
         type: "casino_lottery_win",
-        amount: new Decimal(prize),
+        amount: new Prisma.Decimal(prize),
         description: `Loterie gagnée! ${prize}€`,
       },
     }),

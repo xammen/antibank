@@ -1,9 +1,7 @@
 "use server";
 
 import { auth } from "@/lib/auth";
-import { prisma } from "@antibank/db";
-import { Decimal } from "@prisma/client/runtime/library";
-import type { Prisma } from "@prisma/client";
+import { prisma, Prisma } from "@antibank/db";
 import { rollDice, determineWinner, calculateDiceWinnings, DICE_CONFIG } from "@/lib/dice";
 import { revalidatePath } from "next/cache";
 
@@ -70,7 +68,7 @@ export async function createDiceChallenge(
       data: {
         player1Id: session.user.id,
         player2Id: targetUserId,
-        amount: new Decimal(amount),
+        amount: new Prisma.Decimal(amount),
         status: "pending",
         expiresAt: new Date(Date.now() + DICE_CONFIG.CHALLENGE_EXPIRY_MS),
       },
@@ -136,11 +134,11 @@ export async function acceptDiceChallenge(
       // Déduire les mises
       await tx.user.update({
         where: { id: game.player1Id },
-        data: { balance: { decrement: new Decimal(amount) } },
+        data: { balance: { decrement: new Prisma.Decimal(amount) } },
       });
       await tx.user.update({
         where: { id: game.player2Id! },
-        data: { balance: { decrement: new Decimal(amount) } },
+        data: { balance: { decrement: new Prisma.Decimal(amount) } },
       });
 
       // Distribuer les gains
@@ -150,13 +148,13 @@ export async function acceptDiceChallenge(
       if (player1Winnings > 0) {
         await tx.user.update({
           where: { id: game.player1Id },
-          data: { balance: { increment: new Decimal(player1Winnings) } },
+          data: { balance: { increment: new Prisma.Decimal(player1Winnings) } },
         });
       }
       if (player2Winnings > 0) {
         await tx.user.update({
           where: { id: game.player2Id! },
-          data: { balance: { increment: new Decimal(player2Winnings) } },
+          data: { balance: { increment: new Prisma.Decimal(player2Winnings) } },
         });
       }
 
@@ -177,7 +175,7 @@ export async function acceptDiceChallenge(
         data: {
           userId: game.player1Id,
           type: "casino_dice",
-          amount: new Decimal(player1Winnings - amount),
+          amount: new Prisma.Decimal(player1Winnings - amount),
           description: `Duel de dés: ${player1Roll} vs ${player2Roll}`,
         },
       });
@@ -185,7 +183,7 @@ export async function acceptDiceChallenge(
         data: {
           userId: game.player2Id!,
           type: "casino_dice",
-          amount: new Decimal(player2Winnings - amount),
+          amount: new Prisma.Decimal(player2Winnings - amount),
           description: `Duel de dés: ${player2Roll} vs ${player1Roll}`,
         },
       });
@@ -367,14 +365,14 @@ export async function playDiceVsBot(amount: number): Promise<PlayVsBotResult> {
       // Déduire la mise
       await tx.user.update({
         where: { id: session.user.id },
-        data: { balance: { decrement: new Decimal(amount) } },
+        data: { balance: { decrement: new Prisma.Decimal(amount) } },
       });
 
       // Ajouter les gains si applicable
       if (winnings > 0) {
         await tx.user.update({
           where: { id: session.user.id },
-          data: { balance: { increment: new Decimal(winnings) } },
+          data: { balance: { increment: new Prisma.Decimal(winnings) } },
         });
       }
 
@@ -383,7 +381,7 @@ export async function playDiceVsBot(amount: number): Promise<PlayVsBotResult> {
         data: {
           userId: session.user.id,
           type: "casino_dice",
-          amount: new Decimal(profit),
+          amount: new Prisma.Decimal(profit),
           description: `Dés vs Bot: ${playerRoll} vs ${botRoll} - ${result === "player1" ? "Gagné" : result === "tie" ? "Égalité" : "Perdu"}`,
         },
       });

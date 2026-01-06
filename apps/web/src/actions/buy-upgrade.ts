@@ -1,11 +1,9 @@
 "use server";
 
 import { auth } from "@/lib/auth";
-import { prisma } from "@antibank/db";
+import { prisma, Prisma } from "@antibank/db";
 import { UPGRADES, getPriceForLevel } from "@/lib/upgrades";
-import { Decimal } from "@prisma/client/runtime/library";
 import { revalidatePath } from "next/cache";
-import type { Prisma } from "@prisma/client";
 
 export interface BuyResult {
   success: boolean;
@@ -59,7 +57,7 @@ export async function buyUpgrade(upgradeId: string): Promise<BuyResult> {
       }
 
       // Déduire le montant
-      const newBalance = new Decimal(balance - price);
+      const newBalance = new Prisma.Decimal(balance - price);
 
       await tx.user.update({
         where: { id: user.id },
@@ -89,7 +87,7 @@ export async function buyUpgrade(upgradeId: string): Promise<BuyResult> {
         data: {
           userId: user.id,
           type: "shop",
-          amount: new Decimal(-price),
+          amount: new Prisma.Decimal(-price),
           description: `Achat: ${upgrade.name} (niveau ${newLevel})`,
         },
       });

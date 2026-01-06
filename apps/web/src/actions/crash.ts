@@ -1,8 +1,7 @@
 "use server";
 
 import { auth } from "@/lib/auth";
-import { prisma } from "@antibank/db";
-import { Decimal } from "@prisma/client/runtime/library";
+import { prisma, Prisma } from "@antibank/db";
 import { validateBet } from "@/lib/crash";
 import { revalidatePath } from "next/cache";
 
@@ -49,13 +48,13 @@ export async function placeCrashBet(amount: number): Promise<BetResult> {
     await prisma.$transaction([
       prisma.user.update({
         where: { id: user.id },
-        data: { balance: { decrement: new Decimal(amount) } },
+        data: { balance: { decrement: new Prisma.Decimal(amount) } },
       }),
       prisma.transaction.create({
         data: {
           userId: user.id,
           type: "casino_crash_bet",
-          amount: new Decimal(-amount),
+          amount: new Prisma.Decimal(-amount),
           description: `Mise crash game`,
         },
       }),
@@ -85,14 +84,14 @@ export async function cashOutCrash(
     
     const updatedUser = await prisma.user.update({
       where: { id: session.user.id },
-      data: { balance: { increment: new Decimal(winAmount) } },
+      data: { balance: { increment: new Prisma.Decimal(winAmount) } },
     });
 
     await prisma.transaction.create({
       data: {
         userId: session.user.id,
         type: "casino_crash_win",
-        amount: new Decimal(winAmount),
+        amount: new Prisma.Decimal(winAmount),
         description: `Crash cashout x${multiplier.toFixed(2)}`,
       },
     });

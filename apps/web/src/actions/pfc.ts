@@ -1,9 +1,7 @@
 "use server";
 
 import { auth } from "@/lib/auth";
-import { prisma } from "@antibank/db";
-import { Decimal } from "@prisma/client/runtime/library";
-import type { Prisma } from "@prisma/client";
+import { prisma, Prisma } from "@antibank/db";
 import { 
   determinePFCWinner, 
   calculatePFCWinnings, 
@@ -67,7 +65,7 @@ export async function createPFCChallenge(
       data: {
         player1Id: session.user.id,
         player2Id: targetUserId,
-        amount: new Decimal(amount),
+        amount: new Prisma.Decimal(amount),
         status: "pending",
         expiresAt: new Date(Date.now() + PFC_CONFIG.CHALLENGE_EXPIRY_MS),
       },
@@ -112,11 +110,11 @@ export async function acceptPFCChallenge(gameId: string): Promise<{ success: boo
   await prisma.$transaction([
     prisma.user.update({
       where: { id: game.player1Id },
-      data: { balance: { decrement: new Decimal(amount) } },
+      data: { balance: { decrement: new Prisma.Decimal(amount) } },
     }),
     prisma.user.update({
       where: { id: game.player2Id! },
-      data: { balance: { decrement: new Decimal(amount) } },
+      data: { balance: { decrement: new Prisma.Decimal(amount) } },
     }),
     prisma.pFCGame.update({
       where: { id: gameId },
@@ -218,13 +216,13 @@ export async function makePFCChoice(
     if (player1Winnings > 0) {
       await tx.user.update({
         where: { id: game.player1Id },
-        data: { balance: { increment: new Decimal(player1Winnings) } },
+        data: { balance: { increment: new Prisma.Decimal(player1Winnings) } },
       });
     }
     if (player2Winnings > 0) {
       await tx.user.update({
         where: { id: game.player2Id! },
-        data: { balance: { increment: new Decimal(player2Winnings) } },
+        data: { balance: { increment: new Prisma.Decimal(player2Winnings) } },
       });
     }
 
@@ -242,7 +240,7 @@ export async function makePFCChoice(
       data: {
         userId: game.player1Id,
         type: "casino_pfc",
-        amount: new Decimal(player1Winnings - amount),
+        amount: new Prisma.Decimal(player1Winnings - amount),
         description: `PFC: ${player1Choice} vs ${player2Choice}`,
       },
     });
@@ -250,7 +248,7 @@ export async function makePFCChoice(
       data: {
         userId: game.player2Id!,
         type: "casino_pfc",
-        amount: new Decimal(player2Winnings - amount),
+        amount: new Prisma.Decimal(player2Winnings - amount),
         description: `PFC: ${player2Choice} vs ${player1Choice}`,
       },
     });
@@ -322,14 +320,14 @@ export async function playPFCVsBot(
       // Déduire la mise
       await tx.user.update({
         where: { id: session.user.id },
-        data: { balance: { decrement: new Decimal(amount) } },
+        data: { balance: { decrement: new Prisma.Decimal(amount) } },
       });
 
       // Ajouter les gains si applicable
       if (winnings > 0) {
         await tx.user.update({
           where: { id: session.user.id },
-          data: { balance: { increment: new Decimal(winnings) } },
+          data: { balance: { increment: new Prisma.Decimal(winnings) } },
         });
       }
 
@@ -338,7 +336,7 @@ export async function playPFCVsBot(
         data: {
           userId: session.user.id,
           type: "casino_pfc",
-          amount: new Decimal(profit),
+          amount: new Prisma.Decimal(profit),
           description: `PFC vs Bot: ${choice} vs ${botChoice} - ${result === "player1" ? "Gagné" : result === "tie" ? "Égalité" : "Perdu"}`,
         },
       });

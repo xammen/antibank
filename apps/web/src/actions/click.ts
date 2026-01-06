@@ -1,7 +1,6 @@
 "use server";
 
-import { prisma } from "@antibank/db";
-import { Decimal } from "@prisma/client/runtime/library";
+import { prisma, Prisma } from "@antibank/db";
 import { calculateClickBonus } from "@/lib/upgrades";
 
 const BASE_CLICK_VALUE = 0.01;
@@ -117,7 +116,7 @@ export async function click(userId: string): Promise<{ success: boolean; error?:
       prisma.user.update({
         where: { id: userId },
         data: {
-          balance: { increment: new Decimal(CLICK_VALUE) },
+          balance: { increment: new Prisma.Decimal(CLICK_VALUE) },
           clicksToday: clicksToday + 1,
           lastClickReset: today > lastReset ? new Date() : undefined,
         },
@@ -126,7 +125,7 @@ export async function click(userId: string): Promise<{ success: boolean; error?:
         data: {
           userId,
           type: "click",
-          amount: new Decimal(CLICK_VALUE),
+          amount: new Prisma.Decimal(CLICK_VALUE),
           description: `clic #${clicksToday + 1}`,
         },
       }),
