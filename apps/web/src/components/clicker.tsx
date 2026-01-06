@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { click } from "@/actions/click";
+import { clickBatch } from "@/actions/click";
 import { useBalance } from "@/hooks/use-balance";
 
 interface ClickerProps {
   userId: string;
+  clickValue?: number; // valeur par clic (avec upgrades)
 }
 
 interface FloatingNumber {
@@ -16,15 +17,20 @@ interface FloatingNumber {
 
 let floatId = 0;
 
-export function Clicker({ userId }: ClickerProps) {
+export function Clicker({ userId, clickValue = 0.01 }: ClickerProps) {
   const [clickEffect, setClickEffect] = useState(false);
   const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [floats, setFloats] = useState<FloatingNumber[]>([]);
   const [clicksRemaining, setClicksRemaining] = useState<number>(1000);
-  const { addToBalance } = useBalance("0");
+  const { addToBalance, setBalance } = useBalance("0");
   const buttonRef = useRef<HTMLButtonElement>(null);
   const errorTimeout = useRef<NodeJS.Timeout | null>(null);
+  
+  // Batching state
+  const pendingClicks = useRef<number>(0);
+  const batchTimeout = useRef<NodeJS.Timeout | null>(null);
+  const isSyncing = useRef<boolean>(false);
 
   // Fetch initial clicks remaining
   useEffect(() => {
@@ -34,7 +40,53 @@ export function Clicker({ userId }: ClickerProps) {
       .catch(() => {});
   }, []);
 
+  // Sync pending clicks with server
+  const syncClicks = useCallback(async () => {
+    if (pendingClicks.current === 0 || isSyncing.current) return;
+    
+    isSyncing.current = true;
+    const clicksToSync = pendingClicks.current;
+    pendingClicks.current = 0;
+    
+    try {
+      const result = await clickBatch(userId, clicksToSync);
+      
+      if (result.success) {
+        setError(null);
+        if (result.clicksRemaining !== undefined) {
+          setClicksRemaining(result.clicksRemaining);
+        }
+        // Sync avec le vrai solde serveur
+        if (result.newBalance !== undefined) {
+          setBalance(result.newBalance.toFixed(2));
+        }
+      } else {
+        setError(result.error || "erreur");
+        if (result.clicksRemaining !== undefined) {
+          setClicksRemaining(result.clicksRemaining);
+        }
+        if (errorTimeout.current) clearTimeout(errorTimeout.current);
+        errorTimeout.current = setTimeout(() => setError(null), 2000);
+      }
+    } catch {
+      setError("erreur reseau");
+      errorTimeout.current = setTimeout(() => setError(null), 2000);
+    } finally {
+      isSyncing.current = false;
+      // Si d'autres clics ont été faits pendant le sync, relance
+      if (pendingClicks.current > 0) {
+        syncClicks();
+      }
+    }
+  }, [userId, setBalance]);
+
   const handleClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    // Check limite locale
+    if (clicksRemaining <= 0) {
+      setError("limite atteinte");
+      return;
+    }
+
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -46,7 +98,7 @@ export function Clicker({ userId }: ClickerProps) {
       setRipples(prev => prev.filter(r => r.id !== rippleId));
     }, 500);
     
-    // Floating +0.01€ - spawn au-dessus du bouton avec spread
+    // Floating +0.01 - spawn au-dessus du bouton avec spread
     const floatX = (Math.random() - 0.5) * 80;
     const floatY = -20 + (Math.random() - 0.5) * 20;
     const id = floatId++;
@@ -61,29 +113,50 @@ export function Clicker({ userId }: ClickerProps) {
     
     // Clear error
     if (errorTimeout.current) clearTimeout(errorTimeout.current);
+    setError(null);
     
-    // Envoie le clic au serveur (non-bloquant)
-    click(userId).then((result) => {
-      if (result.success) {
-        addToBalance(0.01);
-        setError(null);
-        if (result.clicksRemaining !== undefined) {
-          setClicksRemaining(result.clicksRemaining);
-        }
-      } else {
-        setError(result.error || "erreur");
-        if (result.clicksRemaining !== undefined) {
-          setClicksRemaining(result.clicksRemaining);
-        }
-        errorTimeout.current = setTimeout(() => setError(null), 2000);
+    // OPTIMISTIC UI: ajoute immédiatement au solde local
+    addToBalance(clickValue);
+    setClicksRemaining(prev => Math.max(0, prev - 1));
+    
+    // Accumule le clic
+    pendingClicks.current += 1;
+    
+    // Debounce: sync après 300ms d'inactivité
+    if (batchTimeout.current) clearTimeout(batchTimeout.current);
+    batchTimeout.current = setTimeout(() => {
+      syncClicks();
+    }, 300);
+    
+  }, [clickValue, clicksRemaining, addToBalance, syncClicks]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (batchTimeout.current) clearTimeout(batchTimeout.current);
+      if (errorTimeout.current) clearTimeout(errorTimeout.current);
+    };
+  }, []);
+
+  // Sync avant de quitter la page
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (pendingClicks.current > 0) {
+        // Fire and forget
+        navigator.sendBeacon?.(
+          `/api/click-sync?userId=${userId}&count=${pendingClicks.current}`
+        );
       }
-    });
-  }, [userId, addToBalance]);
+    };
+    
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [userId]);
 
   return (
     <div className="flex flex-col items-center gap-4 w-full">
       <div className="relative">
-        {/* Floating +0.01€ */}
+        {/* Floating +value */}
         <div className="absolute inset-0 pointer-events-none overflow-visible" style={{ zIndex: 100 }}>
           {floats.map((float) => (
             <span
@@ -97,7 +170,7 @@ export function Clicker({ userId }: ClickerProps) {
                 textShadow: "0 0 10px rgba(74,222,128,0.8), 0 0 20px rgba(74,222,128,0.4)",
               }}
             >
-              +0.01€
+              +{clickValue.toFixed(2)}
             </span>
           ))}
         </div>
@@ -117,6 +190,7 @@ export function Clicker({ userId }: ClickerProps) {
         <button
           ref={buttonRef}
           onClick={handleClick}
+          disabled={clicksRemaining <= 0}
           className={`
             relative z-10 overflow-hidden
             w-32 h-32 rounded-full 
@@ -127,6 +201,7 @@ export function Clicker({ userId }: ClickerProps) {
             transition-all duration-100 ease-out
             hover:border-[var(--text-muted)] hover:text-[var(--text)]
             active:scale-[0.95]
+            disabled:opacity-50 disabled:cursor-not-allowed
             ${clickEffect 
               ? "scale-[0.93] border-green-500/70 text-white shadow-[0_0_20px_rgba(74,222,128,0.3)]" 
               : "border-[var(--line)] text-[var(--text-muted)]"
@@ -145,7 +220,7 @@ export function Clicker({ userId }: ClickerProps) {
               }}
             />
           ))}
-          <span className="relative z-10">€</span>
+          <span className="relative z-10">$</span>
         </button>
       </div>
 

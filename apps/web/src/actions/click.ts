@@ -1,45 +1,39 @@
 "use server";
 
-import { prisma, Prisma } from "@antibank/db";
+import { prisma } from "@antibank/db";
 import { calculateClickBonus } from "@/lib/upgrades";
 
 const BASE_CLICK_VALUE = 0.01;
 const MAX_CLICKS_PER_DAY = 1000;
 
 // Anti-triche config
-const MAX_CLICKS_PER_SECOND = 18;      // burst max
-const MAX_CLICKS_PER_5_SEC = 60;       // moyenne ~12/sec sur 5 sec
-const WINDOW_SIZE_MS = 5000;           // fenêtre de 5 secondes
-const MIN_VARIANCE_THRESHOLD = 5;      // variance min entre clics (anti-bot)
+const MAX_CLICKS_PER_BATCH = 20;        // max clics par batch
+const MAX_BATCH_PER_SECOND = 3;         // max batches par seconde
+const WINDOW_SIZE_MS = 5000;            // fenêtre de 5 secondes
+const MAX_BATCHES_PER_5_SEC = 10;       // max batches sur 5 sec
 
-// Stockage des timestamps de clics par utilisateur
-const clickHistory = new Map<string, number[]>();
-const suspiciousUsers = new Map<string, number>(); // userId -> timestamp du flag
+// Stockage des timestamps de batches par utilisateur
+const batchHistory = new Map<string, number[]>();
+const suspiciousUsers = new Map<string, number>();
 
-function cleanOldClicks(clicks: number[], now: number): number[] {
-  return clicks.filter(t => now - t < WINDOW_SIZE_MS);
+function cleanOldBatches(batches: number[], now: number): number[] {
+  return batches.filter(t => now - t < WINDOW_SIZE_MS);
 }
 
-function detectBotPattern(clicks: number[]): boolean {
-  if (clicks.length < 10) return false;
-  
-  // Calcule les intervalles entre clics
-  const intervals: number[] = [];
-  for (let i = 1; i < clicks.length; i++) {
-    intervals.push(clicks[i] - clicks[i - 1]);
-  }
-  
-  // Calcule la variance des intervalles
-  const mean = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-  const variance = intervals.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / intervals.length;
-  
-  // Si la variance est trop faible = clics trop réguliers = bot
-  return variance < MIN_VARIANCE_THRESHOLD;
+export interface ClickBatchResult {
+  success: boolean;
+  error?: string;
+  clicksRemaining?: number;
+  totalEarned?: number;
+  newBalance?: number;
 }
 
-export async function click(userId: string): Promise<{ success: boolean; error?: string; clicksRemaining?: number }> {
+export async function clickBatch(userId: string, count: number): Promise<ClickBatchResult> {
   try {
     const now = Date.now();
+    
+    // Sanitize count
+    count = Math.min(Math.max(1, Math.floor(count)), MAX_CLICKS_PER_BATCH);
     
     // Check si user est flaggé suspect (cooldown de 30 sec)
     const suspiciousTime = suspiciousUsers.get(userId);
@@ -48,31 +42,25 @@ export async function click(userId: string): Promise<{ success: boolean; error?:
       return { success: false, error: `spam detecte, attends ${remaining}s` };
     }
     
-    // Récupère et nettoie l'historique des clics
-    let clicks = clickHistory.get(userId) || [];
-    clicks = cleanOldClicks(clicks, now);
+    // Récupère et nettoie l'historique des batches
+    let batches = batchHistory.get(userId) || [];
+    batches = cleanOldBatches(batches, now);
     
-    // Check: max 18 clics dans la dernière seconde
-    const clicksLastSecond = clicks.filter(t => now - t < 1000).length;
-    if (clicksLastSecond >= MAX_CLICKS_PER_SECOND) {
+    // Check: max batches dans la dernière seconde
+    const batchesLastSecond = batches.filter(t => now - t < 1000).length;
+    if (batchesLastSecond >= MAX_BATCH_PER_SECOND) {
       return { success: false, error: "trop rapide" };
     }
     
-    // Check: max 60 clics dans les 5 dernières secondes
-    if (clicks.length >= MAX_CLICKS_PER_5_SEC) {
+    // Check: max batches dans les 5 dernières secondes
+    if (batches.length >= MAX_BATCHES_PER_5_SEC) {
       suspiciousUsers.set(userId, now);
       return { success: false, error: "ralentis un peu" };
     }
     
-    // Check: pattern de bot (clics trop réguliers)
-    if (detectBotPattern(clicks)) {
-      suspiciousUsers.set(userId, now);
-      return { success: false, error: "hmm..." };
-    }
-    
-    // Ajoute le clic à l'historique
-    clicks.push(now);
-    clickHistory.set(userId, clicks);
+    // Ajoute le batch à l'historique
+    batches.push(now);
+    batchHistory.set(userId, batches);
 
     // Get user avec ses upgrades
     const user = await prisma.user.findUnique({
@@ -84,15 +72,15 @@ export async function click(userId: string): Promise<{ success: boolean; error?:
       return { success: false, error: "utilisateur non trouve" };
     }
 
+    if (user.isBanned) {
+      return { success: false, error: "banni" };
+    }
+
     // Calcule la valeur du clic avec les upgrades
     const clickBonus = calculateClickBonus(
       user.upgrades.map((u) => ({ upgradeId: u.upgradeId, level: u.level }))
     );
     const CLICK_VALUE = BASE_CLICK_VALUE + clickBonus;
-
-    if (user.isBanned) {
-      return { success: false, error: "banni" };
-    }
 
     // Check if we need to reset daily clicks
     const today = new Date();
@@ -103,37 +91,41 @@ export async function click(userId: string): Promise<{ success: boolean; error?:
     let clicksToday = user.clicksToday;
 
     if (today > lastReset) {
-      // New day, reset clicks
       clicksToday = 0;
     }
 
-    if (clicksToday >= MAX_CLICKS_PER_DAY) {
+    // Limite le nombre de clics au max restant
+    const clicksRemaining = MAX_CLICKS_PER_DAY - clicksToday;
+    if (clicksRemaining <= 0) {
       return { success: false, error: "limite quotidienne atteinte", clicksRemaining: 0 };
     }
 
-    // Update user balance and clicks in transaction
-    await prisma.$transaction([
-      prisma.user.update({
-        where: { id: userId },
-        data: {
-          balance: { increment: new Prisma.Decimal(CLICK_VALUE) },
-          clicksToday: clicksToday + 1,
-          lastClickReset: today > lastReset ? new Date() : undefined,
-        },
-      }),
-      prisma.transaction.create({
-        data: {
-          userId,
-          type: "click",
-          amount: new Prisma.Decimal(CLICK_VALUE),
-          description: `clic #${clicksToday + 1}`,
-        },
-      }),
-    ]);
+    const actualClicks = Math.min(count, clicksRemaining);
+    const totalEarned = actualClicks * CLICK_VALUE;
 
-    return { success: true, clicksRemaining: MAX_CLICKS_PER_DAY - (clicksToday + 1) };
+    // Update user balance and clicks
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        balance: { increment: totalEarned },
+        clicksToday: clicksToday + actualClicks,
+        lastClickReset: today > lastReset ? new Date() : undefined,
+      },
+    });
+
+    return { 
+      success: true, 
+      clicksRemaining: MAX_CLICKS_PER_DAY - (clicksToday + actualClicks),
+      totalEarned,
+      newBalance: Number(updatedUser.balance),
+    };
   } catch (error) {
-    console.error("Click error:", error);
+    console.error("Click batch error:", error);
     return { success: false, error: "erreur serveur" };
   }
+}
+
+// Legacy single click (pour compatibilité)
+export async function click(userId: string): Promise<{ success: boolean; error?: string; clicksRemaining?: number }> {
+  return clickBatch(userId, 1);
 }
