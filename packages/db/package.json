@@ -16,15 +16,15 @@
     "studio": "prisma studio"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.0.2",
-    "@prisma/adapter-neon": "^7.2.0",
-    "@prisma/client": "^6.1.0",
+    "@neondatabase/serverless": "^0.10.4",
+    "@prisma/adapter-neon": "^6.8.2",
+    "@prisma/client": "^6.8.2",
     "@prisma/extension-accelerate": "^3.0.1",
     "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",
-    "prisma": "^6.1.0",
+    "prisma": "^6.8.2",
     "typescript": "^5.7.2"
   }
 }
