@@ -20,6 +20,12 @@ model User {
   lastClickReset DateTime @default(now())
   clickerIcon    String  @default("cookie") // "cookie", "cookie-bw", "cookie-cute"
 
+  // Voice tracking
+  dailyVoiceMinutes  Int      @default(0)      // Minutes cumulées aujourd'hui
+  lastVoiceReset     DateTime @default(now())  // Dernier reset journalier
+  voiceStreak        Int      @default(0)      // Jours consécutifs avec 30+ min de vocal
+  totalVoiceMinutes  Int      @default(0)      // Total all-time pour stats
+
   isAdmin  Boolean @default(false)
   isBanned Boolean @default(false)
 
