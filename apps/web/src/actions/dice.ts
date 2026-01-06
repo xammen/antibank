@@ -262,6 +262,7 @@ export async function getPendingDiceChallenges() {
         player2: { select: { id: true, discordUsername: true } },
       },
       orderBy: { createdAt: "desc" },
+      take: 50, // Pagination: limite à 50 résultats
     }),
     prisma.diceGame.findMany({
       where: {
@@ -273,6 +274,7 @@ export async function getPendingDiceChallenges() {
         player1: { select: { id: true, discordUsername: true } },
       },
       orderBy: { createdAt: "desc" },
+      take: 50,
     }),
   ]);
 
@@ -298,7 +300,8 @@ export async function getAvailablePlayers() {
       discordUsername: true,
       balance: true,
     },
-    orderBy: { discordUsername: "asc" },
+    take: 100, // Limite à 100 joueurs actifs
+    orderBy: { balance: "desc" }, // Joueurs les plus riches en premier
   });
 
   return players.map(p => ({

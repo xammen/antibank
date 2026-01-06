@@ -380,6 +380,7 @@ export async function getPendingPFCChallenges() {
         player2: { select: { id: true, discordUsername: true } },
       },
       orderBy: { createdAt: "desc" },
+      take: 50, // Pagination: limite à 50 résultats
     }),
     prisma.pFCGame.findMany({
       where: {
@@ -391,6 +392,7 @@ export async function getPendingPFCChallenges() {
         player1: { select: { id: true, discordUsername: true } },
       },
       orderBy: { createdAt: "desc" },
+      take: 50,
     }),
     // Games where I need to make a choice
     prisma.pFCGame.findMany({
@@ -407,6 +409,7 @@ export async function getPendingPFCChallenges() {
         player2: { select: { id: true, discordUsername: true } },
       },
       orderBy: { createdAt: "desc" },
+      take: 50,
     }),
   ]);
 

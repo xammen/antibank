@@ -27,8 +27,9 @@ async function updateVoiceSessions() {
   const guild = client.guilds.cache.get(process.env.GUILD_ID!);
   if (!guild) return;
 
-  // Supprime toutes les sessions existantes
-  await prisma.voiceSession.deleteMany({});
+  // Collecte tous les membres actuellement en vocal
+  const activeMemberIds = new Set<string>();
+  const sessionsData: { discordId: string; channelId: string; channelName: string; guildId: string; othersCount: number }[] = [];
 
   // Parcourt tous les channels vocaux
   for (const [, channel] of guild.channels.cache) {
@@ -37,26 +38,43 @@ async function updateVoiceSessions() {
     const members = channel.members.filter(m => !m.user.bot);
     if (members.size < 2) continue; // Besoin de 2+ personnes
     
-    // Crée une session pour chaque membre
+    // Prépare les données de session pour chaque membre
     for (const [, member] of members) {
-      await prisma.voiceSession.upsert({
-        where: { discordId: member.id },
-        update: {
-          channelId: channel.id,
-          channelName: channel.name,
-          othersCount: members.size - 1,
-          lastUpdate: new Date(),
-        },
-        create: {
-          discordId: member.id,
-          channelId: channel.id,
-          channelName: channel.name,
-          guildId: guild.id,
-          othersCount: members.size - 1,
-        },
+      activeMemberIds.add(member.id);
+      sessionsData.push({
+        discordId: member.id,
+        channelId: channel.id,
+        channelName: channel.name,
+        guildId: guild.id,
+        othersCount: members.size - 1,
       });
     }
   }
+
+  // OPTIMISATION: Upsert batch + delete inactifs en une seule transaction
+  await prisma.$transaction([
+    // Supprime seulement les sessions des users qui ne sont plus en vocal
+    prisma.voiceSession.deleteMany({
+      where: {
+        discordId: {
+          notIn: Array.from(activeMemberIds),
+        },
+      },
+    }),
+    // Upsert tous les actifs
+    ...sessionsData.map(data =>
+      prisma.voiceSession.upsert({
+        where: { discordId: data.discordId },
+        update: {
+          channelId: data.channelId,
+          channelName: data.channelName,
+          othersCount: data.othersCount,
+          lastUpdate: new Date(),
+        },
+        create: data,
+      })
+    ),
+  ]);
 }
 
 async function mineVocal() {

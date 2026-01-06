@@ -15,6 +15,8 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "2mb",
     },
   },
+  // Cloudflare Pages compatibility
+  // @cloudflare/next-on-pages va convertir le build standalone en edge-compatible
 };
 
 export default nextConfig;
