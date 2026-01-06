@@ -108,7 +108,7 @@ export default async function CasinoPage() {
           <p className="text-[0.7rem] text-[var(--text-muted)]">
             ⚠️ le jeu est réservé aux majeurs. mise responsable.
             <br />
-            (c'est une blague, c'est du fake money lol)
+            ptrddrrr tout sur le rouge les frères
           </p>
         </div>
       </div>

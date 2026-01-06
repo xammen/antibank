@@ -10,7 +10,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "antibank",
-  description: "fake money, real chaos",
+  description: "antilibe avec le capitalisme",
 };
 
 export default function RootLayout({

@@ -22,19 +22,12 @@ export default async function Home() {
         <div className="w-px h-8 bg-[var(--line)] my-6"></div>
 
         <p className="text-[0.85rem] text-[var(--text-muted)] leading-relaxed mb-8 max-w-[300px]">
-          fake money, real chaos.<br/>
-          un système économique fictif pour ruiner tes amis avec élégance.
+          antilibe avec le capitalisme
         </p>
 
         <LoginButton />
 
-        <div className="mt-16 flex gap-4 text-[0.7rem] text-[var(--text-muted)] opacity-50">
-          <span>braquages</span>
-          <span>•</span>
-          <span>casino</span>
-          <span>•</span>
-          <span>dette</span>
-        </div>
+
       </div>
     </main>
   );
