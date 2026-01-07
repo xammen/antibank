@@ -16,9 +16,9 @@ interface PFCGameClientProps {
 type GameMode = "bot" | "pvp";
 
 const CHOICES: { choice: PFCChoice; emoji: string }[] = [
-  { choice: "pierre", emoji: "\uD83E\uDEA8" },
-  { choice: "feuille", emoji: "\uD83D\uDCC4" },
-  { choice: "ciseaux", emoji: "\u2702\uFE0F" },
+  { choice: "pierre", emoji: "🪨" },
+  { choice: "feuille", emoji: "📄" },
+  { choice: "ciseaux", emoji: "✂️" },
 ];
 
 interface Player {
@@ -86,18 +86,20 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
     }
   }, [mode]);
 
-  // Load history on mount
+  // Load history on mount and refresh periodically
   useEffect(() => {
     const loadHistory = async () => {
       const h = await getPFCHistory(15);
       setHistory(h as HistoryGame[]);
     };
     loadHistory();
+    const interval = setInterval(loadHistory, 5000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Poll for results when waiting
+  // Poll for results when waiting (either waiting for opponent to choose, or waiting for opponent to accept and play)
   useEffect(() => {
-    if (challenges.waitingResult.length === 0) return;
+    if (challenges.waitingResult.length === 0 && challenges.sent.length === 0) return;
 
     const checkResults = async () => {
       const results = await getRecentPFCResults();
@@ -124,12 +126,12 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
 
     const interval = setInterval(checkResults, 2000);
     return () => clearInterval(interval);
-  }, [challenges.waitingResult, seenResultIds, refreshBalance]);
+  }, [challenges.waitingResult, challenges.sent, seenResultIds, refreshBalance]);
 
   // Bot thinking animation
   useEffect(() => {
     if (showAnimation) {
-      const emojis = ["\uD83E\uDD14", "\uD83E\uDEA8", "\uD83D\uDCC4", "\u2702\uFE0F"];
+      const emojis = ["🤔", "🪨", "📄", "✂️"];
       let i = 0;
       const interval = setInterval(() => {
         i = (i + 1) % emojis.length;
@@ -472,9 +474,9 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
                   ) : challenges.waitingResult.length === 0 && (
                     <div className="text-center text-[var(--text-muted)]">
                       <div className="text-4xl mb-4 opacity-20 flex justify-center gap-2">
-                        <span>{"\uD83E\uDEA8"}</span>
-                        <span>{"\uD83D\uDCC4"}</span>
-                        <span>{"\u2702\uFE0F"}</span>
+                        <span>🪨</span>
+                        <span>📄</span>
+                        <span>✂️</span>
                       </div>
                       <p className="text-sm">defie un joueur depuis le panel</p>
                     </div>

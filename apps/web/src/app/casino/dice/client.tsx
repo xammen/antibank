@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { playDiceVsBot, type PlayVsBotResult, getAvailablePlayers, getPendingDiceChallenges, createDiceChallenge, acceptDiceChallenge } from "@/actions/dice";
+import { playDiceVsBot, type PlayVsBotResult, getAvailablePlayers, getPendingDiceChallenges, createDiceChallenge, acceptDiceChallenge, getRecentDiceResults } from "@/actions/dice";
 import { Balance } from "@/components/balance";
 import { BalanceProvider, useBalance } from "@/hooks/use-balance";
 
@@ -90,6 +90,7 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
   const [challenges, setChallenges] = useState<{ sent: Challenge[]; received: Challenge[] }>({ sent: [], received: [] });
   const [pvpResult, setPvpResult] = useState<{ won: boolean; tie: boolean; myRoll: number; theirRoll: number; myDice: [number, number]; theirDice: [number, number]; profit: number } | null>(null);
   const [pvpAnimating, setPvpAnimating] = useState(false);
+  const [seenResultIds, setSeenResultIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (mode === "pvp") {
@@ -98,6 +99,42 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
       return () => clearInterval(interval);
     }
   }, [mode]);
+
+  // Poll for results when we have sent challenges (player1 waiting for player2 to accept)
+  useEffect(() => {
+    if (mode !== "pvp" || challenges.sent.length === 0) return;
+
+    const checkResults = async () => {
+      const results = await getRecentDiceResults();
+      for (const result of results) {
+        if (!seenResultIds.has(result.id)) {
+          // New result! Show animation then result
+          setPvpAnimating(true);
+          
+          // Wait for animation
+          await new Promise((r) => setTimeout(r, 2000));
+          
+          setPvpResult({
+            won: result.won,
+            tie: result.tie,
+            myRoll: result.myRoll || 0,
+            theirRoll: result.theirRoll || 0,
+            myDice: result.myDice as [number, number],
+            theirDice: result.theirDice as [number, number],
+            profit: result.profit,
+          });
+          setPvpAnimating(false);
+          setSeenResultIds(prev => new Set([...prev, result.id]));
+          refreshBalance();
+          loadPvpData();
+          break;
+        }
+      }
+    };
+
+    const interval = setInterval(checkResults, 2000);
+    return () => clearInterval(interval);
+  }, [mode, challenges.sent, seenResultIds, refreshBalance]);
 
   const loadPvpData = async () => {
     const [p, c] = await Promise.all([

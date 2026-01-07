@@ -292,6 +292,117 @@ export async function getPendingDiceChallenges() {
 }
 
 /**
+ * Récupère les parties de dés récemment terminées (pour notification player1)
+ */
+export async function getRecentDiceResults() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return [];
+  }
+
+  // Parties terminées dans les 30 dernières secondes
+  const recentGames = await prisma.diceGame.findMany({
+    where: {
+      status: "completed",
+      completedAt: { gte: new Date(Date.now() - 30000) },
+      OR: [
+        { player1Id: session.user.id },
+        { player2Id: session.user.id },
+      ],
+    },
+    include: {
+      player1: { select: { id: true, discordUsername: true } },
+      player2: { select: { id: true, discordUsername: true } },
+    },
+    orderBy: { completedAt: "desc" },
+    take: 5,
+  });
+
+  return recentGames.map(game => {
+    const isPlayer1 = game.player1Id === session.user.id;
+    const myRoll = isPlayer1 ? game.player1Roll : game.player2Roll;
+    const theirRoll = isPlayer1 ? game.player2Roll : game.player1Roll;
+    const opponent = isPlayer1 ? game.player2 : game.player1;
+    const amount = Number(game.amount);
+    
+    const won = game.winnerId === session.user.id;
+    const tie = game.winnerId === null;
+    const profit = won ? amount * 0.9 : tie ? -amount * 0.05 : -amount;
+
+    // Recalculer les dés individuels à partir du total (approximation)
+    const splitRoll = (roll: number | null): [number, number] => {
+      if (!roll) return [1, 1];
+      const d1 = Math.min(6, Math.max(1, Math.ceil(roll / 2)));
+      const d2 = roll - d1;
+      return [d1, Math.max(1, Math.min(6, d2))];
+    };
+
+    return {
+      id: game.id,
+      myRoll,
+      theirRoll,
+      myDice: splitRoll(myRoll),
+      theirDice: splitRoll(theirRoll),
+      opponentName: opponent?.discordUsername || "?",
+      won,
+      tie,
+      profit,
+      completedAt: game.completedAt,
+    };
+  });
+}
+
+/**
+ * Récupère l'historique des parties de dés
+ */
+export async function getDiceHistory(limit = 20) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return [];
+  }
+
+  const games = await prisma.diceGame.findMany({
+    where: {
+      status: "completed",
+      OR: [
+        { player1Id: session.user.id },
+        { player2Id: session.user.id },
+      ],
+    },
+    include: {
+      player1: { select: { id: true, discordUsername: true } },
+      player2: { select: { id: true, discordUsername: true } },
+    },
+    orderBy: { completedAt: "desc" },
+    take: limit,
+  });
+
+  return games.map(game => {
+    const isPlayer1 = game.player1Id === session.user.id;
+    const myRoll = isPlayer1 ? game.player1Roll : game.player2Roll;
+    const theirRoll = isPlayer1 ? game.player2Roll : game.player1Roll;
+    const opponent = isPlayer1 ? game.player2 : game.player1;
+    const amount = Number(game.amount);
+    
+    const won = game.winnerId === session.user.id;
+    const tie = game.winnerId === null;
+    const profit = won ? amount * 0.9 : tie ? -amount * 0.05 : -amount;
+
+    return {
+      id: game.id,
+      myRoll,
+      theirRoll,
+      opponentName: opponent?.discordUsername || "bot",
+      won,
+      tie,
+      profit,
+      amount,
+      completedAt: game.completedAt,
+    };
+  });
+}
+
+/**
  * Récupère la liste des joueurs disponibles pour un défi
  */
 export async function getAvailablePlayers() {

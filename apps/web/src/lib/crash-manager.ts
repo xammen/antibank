@@ -1,191 +1,298 @@
-// Crash Game State Manager (Singleton côté serveur)
-// Utilise globalThis pour persister entre les hot reloads
+// Crash Game State Manager - DB-backed for serverless
+// Uses database to persist state between requests
 
+import { prisma, Prisma } from "@antibank/db";
 import {
   generateCrashPoint,
   calculateMultiplier,
   timeToMultiplier,
   CRASH_CONFIG,
-  type CrashGameState,
-  type CrashPlayer,
 } from "./crash";
 
-interface GameState {
+interface CrashPlayerPublic {
+  odrzerId: string;
+  odrzerame: string;
+  bet: number;
+  cashedOut: boolean;
+  cashOutMultiplier?: number;
+  autoCashout?: number;
+  profit?: number;
+}
+
+interface PublicState {
   id: string;
-  state: CrashGameState;
-  crashPoint: number;
+  state: "waiting" | "running" | "crashed";
+  crashPoint?: number;
   currentMultiplier: number;
-  startTime: number | null;
-  players: Map<string, CrashPlayer>;
   countdown: number;
+  startTime: number | null;
+  players: CrashPlayerPublic[];
 }
 
 class CrashGameManager {
-  private currentGame: GameState;
-  private gameInterval: ReturnType<typeof setInterval> | null = null;
-  private countdownInterval: ReturnType<typeof setInterval> | null = null;
-
-  constructor() {
-    this.currentGame = this.createNewGame();
-    this.startCountdown();
-    console.log("[CrashManager] Initialized, crashPoint:", this.currentGame.crashPoint);
-  }
-
-  private createNewGame(): GameState {
-    return {
-      id: crypto.randomUUID(),
-      state: "waiting",
-      crashPoint: generateCrashPoint(),
-      currentMultiplier: 1.0,
-      startTime: null,
-      players: new Map(),
-      countdown: CRASH_CONFIG.COUNTDOWN_SECONDS,
-    };
-  }
-
-  private startCountdown() {
-    this.currentGame.state = "waiting";
-    this.currentGame.countdown = CRASH_CONFIG.COUNTDOWN_SECONDS;
-    console.log("[CrashManager] Countdown started:", this.currentGame.countdown);
-
-    this.countdownInterval = setInterval(() => {
-      this.currentGame.countdown--;
-
-      if (this.currentGame.countdown <= 0) {
-        if (this.countdownInterval) {
-          clearInterval(this.countdownInterval);
-          this.countdownInterval = null;
+  
+  async getOrCreateCurrentGame() {
+    // Chercher une partie en cours ou en attente
+    let game = await prisma.crashGame.findFirst({
+      where: {
+        status: { in: ["waiting", "running"] }
+      },
+      include: {
+        bets: {
+          include: {
+            user: { select: { id: true, discordUsername: true } }
+          }
         }
-        this.startGame();
-      }
-    }, 1000);
-  }
-
-  private startGame() {
-    this.currentGame.state = "running";
-    this.currentGame.startTime = Date.now();
-    this.currentGame.currentMultiplier = 1.0;
-    
-    const crashTimeMs = timeToMultiplier(this.currentGame.crashPoint);
-    console.log("[CrashManager] Game started, crashPoint:", this.currentGame.crashPoint, "crashTime:", crashTimeMs, "ms");
-
-    this.gameInterval = setInterval(() => {
-      const elapsed = Date.now() - this.currentGame.startTime!;
-      this.currentGame.currentMultiplier = calculateMultiplier(elapsed);
-
-      // Check si on a dépassé le temps de crash
-      if (elapsed >= crashTimeMs) {
-        this.crash();
-      }
-    }, CRASH_CONFIG.TICK_RATE_MS);
-  }
-
-  private crash() {
-    if (this.gameInterval) {
-      clearInterval(this.gameInterval);
-      this.gameInterval = null;
-    }
-
-    this.currentGame.state = "crashed";
-    this.currentGame.currentMultiplier = this.currentGame.crashPoint;
-    console.log("[CrashManager] CRASHED at", this.currentGame.crashPoint);
-
-    // Marquer tous les joueurs non-cashout comme perdants
-    this.currentGame.players.forEach((player) => {
-      if (!player.cashedOut) {
-        player.profit = -player.bet;
-      }
+      },
+      orderBy: { createdAt: "desc" }
     });
 
-    // Nouvelle partie après 3 secondes
-    setTimeout(() => {
-      this.currentGame = this.createNewGame();
-      this.startCountdown();
-    }, 3000);
+    // Si pas de partie active, en créer une nouvelle
+    if (!game) {
+      game = await prisma.crashGame.create({
+        data: {
+          crashPoint: new Prisma.Decimal(generateCrashPoint()),
+          status: "waiting",
+        },
+        include: {
+          bets: {
+            include: {
+              user: { select: { id: true, discordUsername: true } }
+            }
+          }
+        }
+      });
+    }
+
+    return game;
   }
 
-  getPublicState() {
+  async getPublicState(): Promise<PublicState> {
+    const game = await this.getOrCreateCurrentGame();
+    
+    const now = Date.now();
+    const createdAt = game.createdAt.getTime();
+    const elapsed = now - createdAt;
+    
+    let state: "waiting" | "running" | "crashed" = game.status as "waiting" | "running" | "crashed";
+    let countdown = CRASH_CONFIG.COUNTDOWN_SECONDS;
+    let currentMultiplier = 1.0;
+    let startTime: number | null = null;
+    
+    if (game.status === "waiting") {
+      // Countdown
+      const elapsedSeconds = Math.floor(elapsed / 1000);
+      countdown = Math.max(0, CRASH_CONFIG.COUNTDOWN_SECONDS - elapsedSeconds);
+      
+      // Si countdown terminé, passer en running
+      if (countdown <= 0) {
+        await this.startGame(game.id);
+        state = "running";
+        startTime = now;
+      }
+    } else if (game.status === "running") {
+      startTime = game.startedAt?.getTime() || createdAt + CRASH_CONFIG.COUNTDOWN_SECONDS * 1000;
+      const runningElapsed = now - startTime;
+      currentMultiplier = calculateMultiplier(runningElapsed);
+      
+      const crashPoint = Number(game.crashPoint);
+      const crashTimeMs = timeToMultiplier(crashPoint);
+      
+      // Check auto-cashouts
+      await this.processAutoCashouts(game.id, currentMultiplier);
+      
+      // Si on a dépassé le crash point, crash
+      if (runningElapsed >= crashTimeMs) {
+        await this.crash(game.id, crashPoint);
+        state = "crashed";
+        currentMultiplier = crashPoint;
+      }
+    } else if (game.status === "crashed") {
+      currentMultiplier = Number(game.crashPoint);
+      
+      // Si crashed depuis plus de 3 secondes, créer nouvelle partie
+      if (game.crashedAt && now - game.crashedAt.getTime() > 3000) {
+        // Créer nouvelle partie
+        await prisma.crashGame.create({
+          data: {
+            crashPoint: new Prisma.Decimal(generateCrashPoint()),
+            status: "waiting",
+          }
+        });
+        // Re-fetch
+        return this.getPublicState();
+      }
+    }
+
+    const players: CrashPlayerPublic[] = game.bets.map(bet => ({
+      odrzerId: bet.userId,
+      odrzerame: bet.user.discordUsername,
+      bet: Number(bet.amount),
+      cashedOut: bet.cashOutAt !== null,
+      cashOutMultiplier: bet.cashOutAt ? Number(bet.cashOutAt) : undefined,
+      profit: bet.profit ? Number(bet.profit) : undefined,
+    }));
+
     return {
-      id: this.currentGame.id,
-      state: this.currentGame.state,
-      crashPoint: this.currentGame.state === "crashed" ? this.currentGame.crashPoint : undefined,
-      currentMultiplier: this.currentGame.currentMultiplier,
-      countdown: this.currentGame.countdown,
-      startTime: this.currentGame.startTime,
-      players: Array.from(this.currentGame.players.values()).map((p) => ({
-        odrzerId: p.odrzerId,
-        odrzerame: p.odrzerame,
-        bet: p.bet,
-        cashedOut: p.cashedOut,
-        cashOutMultiplier: p.cashOutMultiplier,
-        profit: p.profit,
-      })),
+      id: game.id,
+      state,
+      crashPoint: state === "crashed" ? Number(game.crashPoint) : undefined,
+      currentMultiplier,
+      countdown,
+      startTime,
+      players,
     };
   }
 
-  canBet(): boolean {
-    return this.currentGame.state === "waiting";
-  }
-
-  hasPlayerBet(odrzerId: string): boolean {
-    return this.currentGame.players.has(odrzerId);
-  }
-
-  placeBet(odrzerId: string, odrzerame: string, amount: number): boolean {
-    if (!this.canBet()) {
-      console.log("[CrashManager] Cannot bet, state:", this.currentGame.state);
-      return false;
-    }
-    if (this.currentGame.players.has(odrzerId)) {
-      console.log("[CrashManager] Player already has bet");
-      return false;
-    }
-
-    this.currentGame.players.set(odrzerId, {
-      odrzerId,
-      odrzerame,
-      bet: amount,
-      cashedOut: false,
+  private async startGame(gameId: string) {
+    await prisma.crashGame.update({
+      where: { id: gameId },
+      data: {
+        status: "running",
+        startedAt: new Date(),
+      }
     });
-    
-    console.log("[CrashManager] Bet placed:", odrzerame, amount);
-    return true;
   }
 
-  cashOut(odrzerId: string): { success: boolean; multiplier?: number; profit?: number; bet?: number } {
-    if (this.currentGame.state !== "running") {
+  private async crash(gameId: string, crashPoint: number) {
+    await prisma.$transaction(async (tx) => {
+      // Update game status
+      await tx.crashGame.update({
+        where: { id: gameId },
+        data: {
+          status: "crashed",
+          crashedAt: new Date(),
+        }
+      });
+
+      // Mark all non-cashed-out bets as lost
+      await tx.crashBet.updateMany({
+        where: {
+          crashGameId: gameId,
+          cashOutAt: null,
+        },
+        data: {
+          profit: new Prisma.Decimal(0), // Will be recalculated as negative
+        }
+      });
+
+      // Get all losing bets and set negative profit
+      const losingBets = await tx.crashBet.findMany({
+        where: {
+          crashGameId: gameId,
+          cashOutAt: null,
+        }
+      });
+
+      for (const bet of losingBets) {
+        await tx.crashBet.update({
+          where: { id: bet.id },
+          data: { profit: new Prisma.Decimal(-Number(bet.amount)) }
+        });
+      }
+    });
+  }
+
+  private async processAutoCashouts(gameId: string, currentMultiplier: number) {
+    // Pour l'instant, pas d'auto-cashout en DB
+    // TODO: ajouter un champ autoCashoutAt dans CrashBet
+  }
+
+  canBet(gameStatus: string): boolean {
+    return gameStatus === "waiting";
+  }
+
+  async hasPlayerBet(gameId: string, userId: string): Promise<boolean> {
+    const bet = await prisma.crashBet.findFirst({
+      where: {
+        crashGameId: gameId,
+        userId,
+      }
+    });
+    return bet !== null;
+  }
+
+  async placeBet(userId: string, username: string, amount: number): Promise<{ success: boolean; error?: string }> {
+    const game = await this.getOrCreateCurrentGame();
+    
+    if (game.status !== "waiting") {
+      return { success: false, error: "paris fermés" };
+    }
+
+    const existingBet = await prisma.crashBet.findFirst({
+      where: {
+        crashGameId: game.id,
+        userId,
+      }
+    });
+
+    if (existingBet) {
+      return { success: false, error: "déjà parié" };
+    }
+
+    await prisma.crashBet.create({
+      data: {
+        crashGameId: game.id,
+        userId,
+        amount: new Prisma.Decimal(amount),
+      }
+    });
+
+    return { success: true };
+  }
+
+  async cashOut(userId: string): Promise<{ success: boolean; multiplier?: number; profit?: number; bet?: number }> {
+    const game = await this.getOrCreateCurrentGame();
+    
+    if (game.status !== "running") {
       return { success: false };
     }
 
-    const player = this.currentGame.players.get(odrzerId);
-    if (!player || player.cashedOut) {
+    const bet = await prisma.crashBet.findFirst({
+      where: {
+        crashGameId: game.id,
+        userId,
+        cashOutAt: null,
+      }
+    });
+
+    if (!bet) {
       return { success: false };
     }
 
-    const multiplier = this.currentGame.currentMultiplier;
-    const grossWin = player.bet * multiplier;
-    const tax = (grossWin - player.bet) * 0.05;
-    const profit = Math.floor((grossWin - player.bet - tax) * 100) / 100;
+    const startTime = game.startedAt?.getTime() || game.createdAt.getTime() + CRASH_CONFIG.COUNTDOWN_SECONDS * 1000;
+    const elapsed = Date.now() - startTime;
+    const multiplier = calculateMultiplier(elapsed);
+    const crashPoint = Number(game.crashPoint);
 
-    player.cashedOut = true;
-    player.cashOutMultiplier = multiplier;
-    player.profit = profit;
+    // Check if already crashed
+    if (multiplier >= crashPoint) {
+      return { success: false };
+    }
 
-    console.log("[CrashManager] Cashout:", odrzerId, "at", multiplier, "profit:", profit);
-    return { success: true, multiplier, profit, bet: player.bet };
+    const betAmount = Number(bet.amount);
+    const grossWin = betAmount * multiplier;
+    const tax = (grossWin - betAmount) * 0.05;
+    const profit = Math.floor((grossWin - betAmount - tax) * 100) / 100;
+
+    await prisma.crashBet.update({
+      where: { id: bet.id },
+      data: {
+        cashOutAt: new Prisma.Decimal(multiplier),
+        profit: new Prisma.Decimal(profit),
+      }
+    });
+
+    return { success: true, multiplier, profit, bet: betAmount };
   }
 }
 
-// Singleton global qui persiste entre les hot reloads
-const globalForCrash = globalThis as unknown as {
-  crashManager: CrashGameManager | undefined;
-};
+// Singleton (but state is in DB, so this is fine for serverless)
+let crashManager: CrashGameManager | null = null;
 
 export function getCrashManager(): CrashGameManager {
-  if (!globalForCrash.crashManager) {
-    globalForCrash.crashManager = new CrashGameManager();
+  if (!crashManager) {
+    crashManager = new CrashGameManager();
   }
-  return globalForCrash.crashManager;
+  return crashManager;
 }
-
-export type { GameState };
