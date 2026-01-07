@@ -1,9 +1,8 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, TextChannel } from "discord.js";
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from "discord.js";
 import { prisma, Prisma } from "@antibank/db";
 
-// Config - memes constantes que le site
 const WARN_COST = 0.20;
-const WARN_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+const WARN_DURATION_MS = 10 * 60 * 1000;
 const WARN_MIN_AMOUNT = 0.50;
 const WARN_MAX_AMOUNT = 50;
 const WARN_MAX_PERCENT = 30;
@@ -12,17 +11,17 @@ const WARN_MIN_ACCUSED_BALANCE = 2;
 export const vote = {
   data: new SlashCommandBuilder()
     .setName("vote")
-    .setDescription("lancer un vote contre quelqu'un")
+    .setDescription("Lancer un vote d'accusation contre un joueur")
     .addUserOption((option) =>
       option
-        .setName("user")
-        .setDescription("l'accuse")
+        .setName("accusé")
+        .setDescription("Le joueur accusé")
         .setRequired(true)
     )
     .addStringOption((option) =>
       option
         .setName("raison")
-        .setDescription("pourquoi tu veux le warn")
+        .setDescription("Motif de l'accusation")
         .setRequired(true)
         .setMinLength(3)
         .setMaxLength(200)
@@ -30,29 +29,27 @@ export const vote = {
     .addNumberOption((option) =>
       option
         .setName("amende")
-        .setDescription("montant de l'amende")
+        .setDescription("Montant de l'amende demandée (0.50 à 50 €)")
         .setRequired(true)
         .setMinValue(WARN_MIN_AMOUNT)
         .setMaxValue(WARN_MAX_AMOUNT)
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {
-    const targetUser = interaction.options.getUser("user", true);
+    const targetUser = interaction.options.getUser("accusé", true);
     const reason = interaction.options.getString("raison", true);
     const amount = interaction.options.getNumber("amende", true);
 
-    // Verifications de base
     if (targetUser.id === interaction.user.id) {
-      await interaction.reply({ content: "tu peux pas te warn toi-meme", ephemeral: true });
+      await interaction.reply({ content: "Vous ne pouvez pas vous accuser vous-même.", ephemeral: true });
       return;
     }
 
     if (targetUser.bot) {
-      await interaction.reply({ content: "tu peux pas warn un bot", ephemeral: true });
+      await interaction.reply({ content: "Vous ne pouvez pas accuser un bot.", ephemeral: true });
       return;
     }
 
-    // Verifier que les deux users existent en DB
     const [accuser, accused] = await Promise.all([
       prisma.user.findUnique({ 
         where: { discordId: interaction.user.id }, 
@@ -65,12 +62,12 @@ export const vote = {
     ]);
 
     if (!accuser) {
-      await interaction.reply({ content: "t'as pas de compte antibank", ephemeral: true });
+      await interaction.reply({ content: "Vous n'avez pas de compte AntiBank.", ephemeral: true });
       return;
     }
 
     if (!accused) {
-      await interaction.reply({ content: `${targetUser.username} n'a pas de compte antibank`, ephemeral: true });
+      await interaction.reply({ content: `**${targetUser.username}** n'a pas de compte AntiBank.`, ephemeral: true });
       return;
     }
 
@@ -78,23 +75,21 @@ export const vote = {
     const accusedBalance = parseFloat(accused.balance.toString());
 
     if (accuserBalance < WARN_COST) {
-      await interaction.reply({ content: `il te faut ${WARN_COST}€ pour lancer un warn`, ephemeral: true });
+      await interaction.reply({ content: `Il vous faut \`${WARN_COST} €\` pour lancer un vote.`, ephemeral: true });
       return;
     }
 
     if (accusedBalance < WARN_MIN_ACCUSED_BALANCE) {
-      await interaction.reply({ content: `l'accuse doit avoir au moins ${WARN_MIN_ACCUSED_BALANCE}€`, ephemeral: true });
+      await interaction.reply({ content: `L'accusé doit avoir au moins \`${WARN_MIN_ACCUSED_BALANCE} €\`.`, ephemeral: true });
       return;
     }
 
-    // Calculer le montant max
     const maxAmount = Math.min(WARN_MAX_AMOUNT, accusedBalance * WARN_MAX_PERCENT / 100);
     if (amount > maxAmount) {
-      await interaction.reply({ content: `montant max: ${maxAmount.toFixed(2)}€`, ephemeral: true });
+      await interaction.reply({ content: `Amende maximale : \`${maxAmount.toFixed(2)} €\` (30% du solde de l'accusé).`, ephemeral: true });
       return;
     }
 
-    // Verifier cooldown
     const recentWarn = await prisma.$queryRaw<[{ count: bigint }]>`
       SELECT COUNT(*) as count FROM "WarnVote"
       WHERE "accuserId" = ${accuser.id}
@@ -102,7 +97,7 @@ export const vote = {
     `;
 
     if (Number(recentWarn[0]?.count || 0) > 0) {
-      await interaction.reply({ content: "tu peux lancer qu'un warn par 24h", ephemeral: true });
+      await interaction.reply({ content: "Vous ne pouvez lancer qu'un vote par 24 heures.", ephemeral: true });
       return;
     }
 
@@ -110,12 +105,10 @@ export const vote = {
     const endsAt = new Date(now.getTime() + WARN_DURATION_MS);
     const warnId = `warn_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-    // Deduire le cout
     await prisma.$executeRaw`
       UPDATE "User" SET balance = balance - ${WARN_COST} WHERE id = ${accuser.id}
     `;
 
-    // Creer le warn en DB
     await prisma.$executeRaw`
       INSERT INTO "WarnVote" (id, "accuserId", "accusedId", reason, amount, status, "guiltyVotes", "innocentVotes", "endsAt", "createdAt")
       VALUES (${warnId}, ${accuser.id}, ${accused.id}, ${reason.trim()}, ${amount}, 'voting', 0, 0, ${endsAt}, ${now})
@@ -126,34 +119,33 @@ export const vote = {
         userId: accuser.id,
         type: "warn_cost",
         amount: new Prisma.Decimal(-WARN_COST),
-        description: `warn contre ${accused.discordUsername}`
+        description: `Vote contre ${accused.discordUsername}`
       }
     });
 
-    // Creer l'embed du vote
     const embed = new EmbedBuilder()
-      .setTitle("vote en cours")
+      .setTitle("⚖️ Vote en cours")
       .setDescription(`**${interaction.user.username}** accuse **${targetUser.username}**`)
+      .setThumbnail(targetUser.displayAvatarURL())
+      .setColor(0xf39c12)
       .addFields(
-        { name: "raison", value: reason, inline: false },
-        { name: "amende", value: `${amount.toFixed(2)}€`, inline: true },
-        { name: "termine dans", value: "10 minutes", inline: true },
-        { name: "votes", value: "⬆️ coupable: 0 | ⬇️ innocent: 0", inline: false }
+        { name: "📋 Motif", value: reason, inline: false },
+        { name: "💰 Amende demandée", value: `\`${amount.toFixed(2)} €\``, inline: true },
+        { name: "⏳ Fin du vote", value: `<t:${Math.floor(endsAt.getTime() / 1000)}:R>`, inline: true },
+        { name: "📊 Votes", value: "⬆️ Coupable : `0`\n⬇️ Innocent : `0`", inline: true }
       )
-      .setColor(0xffcc00)
-      .setFooter({ text: `quorum: 3 votants | ${warnId}` })
-      .setTimestamp(endsAt);
+      .setFooter({ text: "Quorum : 3 votants minimum" })
+      .setTimestamp();
 
     const message = await interaction.reply({ embeds: [embed], fetchReply: true });
 
-    // Ajouter les reactions
     await message.react("⬆️");
     await message.react("⬇️");
 
-    // Sauvegarder le message pour le suivi
+    const guildId = interaction.guildId || "";
     await prisma.$executeRaw`
       INSERT INTO "DiscordVote" (id, "messageId", "channelId", "guildId", type, "warnVoteId", "creatorId", "endsAt", resolved, "createdAt")
-      VALUES (${`dv_${Date.now()}`}, ${message.id}, ${message.channelId}, ${interaction.guildId}, 'warn', ${warnId}, ${accuser.id}, ${endsAt}, false, ${now})
+      VALUES (${`dv_${Date.now()}`}, ${message.id}, ${message.channelId}, ${guildId}, 'warn', ${warnId}, ${accuser.id}, ${endsAt}, false, ${now})
     `;
   },
 };

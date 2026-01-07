@@ -3,42 +3,41 @@ import { prisma, Prisma } from "@antibank/db";
 
 const MIN_BET = 0.5;
 const MAX_BET = 100;
-const HOUSE_FEE_PERCENT = 5; // 5% fee
+const HOUSE_FEE_PERCENT = 5;
 
 export const coinflip = {
   data: new SlashCommandBuilder()
     .setName("coinflip")
-    .setDescription("pile ou face contre quelqu'un")
+    .setDescription("Jouer à pile ou face contre un autre joueur")
     .addUserOption((option) =>
       option
-        .setName("user")
-        .setDescription("ton adversaire")
+        .setName("adversaire")
+        .setDescription("Votre adversaire")
         .setRequired(true)
     )
     .addNumberOption((option) =>
       option
-        .setName("montant")
-        .setDescription("la mise")
+        .setName("mise")
+        .setDescription("Montant de la mise (0.50 à 100 €)")
         .setRequired(true)
         .setMinValue(MIN_BET)
         .setMaxValue(MAX_BET)
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {
-    const targetUser = interaction.options.getUser("user", true);
-    const amount = interaction.options.getNumber("montant", true);
+    const targetUser = interaction.options.getUser("adversaire", true);
+    const amount = interaction.options.getNumber("mise", true);
 
     if (targetUser.id === interaction.user.id) {
-      await interaction.reply({ content: "tu peux pas jouer contre toi-meme", ephemeral: true });
+      await interaction.reply({ content: "Vous ne pouvez pas jouer contre vous-même.", ephemeral: true });
       return;
     }
 
     if (targetUser.bot) {
-      await interaction.reply({ content: "tu peux pas jouer contre un bot", ephemeral: true });
+      await interaction.reply({ content: "Vous ne pouvez pas jouer contre un bot.", ephemeral: true });
       return;
     }
 
-    // Verifier les deux joueurs
     const [player1, player2] = await Promise.all([
       prisma.user.findUnique({
         where: { discordId: interaction.user.id },
@@ -51,12 +50,12 @@ export const coinflip = {
     ]);
 
     if (!player1) {
-      await interaction.reply({ content: "t'as pas de compte antibank", ephemeral: true });
+      await interaction.reply({ content: "Vous n'avez pas de compte AntiBank.", ephemeral: true });
       return;
     }
 
     if (!player2) {
-      await interaction.reply({ content: `${targetUser.username} n'a pas de compte antibank`, ephemeral: true });
+      await interaction.reply({ content: `**${targetUser.username}** n'a pas de compte AntiBank.`, ephemeral: true });
       return;
     }
 
@@ -64,37 +63,41 @@ export const coinflip = {
     const p2Balance = parseFloat(player2.balance.toString());
 
     if (p1Balance < amount) {
-      await interaction.reply({ content: "pas assez de thunes", ephemeral: true });
+      await interaction.reply({ content: `Solde insuffisant. Vous avez \`${p1Balance.toFixed(2)} €\`.`, ephemeral: true });
       return;
     }
 
     if (p2Balance < amount) {
-      await interaction.reply({ content: `${targetUser.username} n'a pas assez`, ephemeral: true });
+      await interaction.reply({ content: `**${targetUser.username}** n'a pas assez (\`${p2Balance.toFixed(2)} €\`).`, ephemeral: true });
       return;
     }
 
+    const pot = amount * 2;
+    const fee = Math.floor(pot * HOUSE_FEE_PERCENT) / 100;
+    const winnings = pot - fee;
+
     const acceptButton = new ButtonBuilder()
       .setCustomId("coinflip_accept")
-      .setLabel("accepter")
+      .setLabel("Accepter")
       .setStyle(ButtonStyle.Success);
 
     const declineButton = new ButtonBuilder()
       .setCustomId("coinflip_decline")
-      .setLabel("refuser")
+      .setLabel("Refuser")
       .setStyle(ButtonStyle.Danger);
 
-    const row = new ActionRowBuilder<ButtonBuilder>()
-      .addComponents(acceptButton, declineButton);
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(acceptButton, declineButton);
 
     const embed = new EmbedBuilder()
-      .setTitle("coinflip")
-      .setDescription(`**${interaction.user.username}** defie **${targetUser.username}** a un pile ou face`)
+      .setTitle("🪙 Pile ou Face")
+      .setDescription(`**${interaction.user.username}** défie **${targetUser.username}**`)
+      .setColor(0xf1c40f)
       .addFields(
-        { name: "mise", value: `${amount.toFixed(2)}€ chacun`, inline: true },
-        { name: "gain possible", value: `${(amount * 2 * (1 - HOUSE_FEE_PERCENT / 100)).toFixed(2)}€`, inline: true }
+        { name: "💵 Mise", value: `\`${amount.toFixed(2)} €\` chacun`, inline: true },
+        { name: "🏆 Gain possible", value: `\`${winnings.toFixed(2)} €\``, inline: true },
+        { name: "💳 Frais (5%)", value: `\`${fee.toFixed(2)} €\``, inline: true }
       )
-      .setColor(0xffcc00)
-      .setFooter({ text: `${targetUser.username} doit accepter (30s)` });
+      .setFooter({ text: `${targetUser.username} a 30 secondes pour répondre.` });
 
     const message = await interaction.reply({ 
       content: `<@${targetUser.id}>`,
@@ -103,7 +106,6 @@ export const coinflip = {
       fetchReply: true 
     });
 
-    // Attendre la reponse
     try {
       const response = await message.awaitMessageComponent({
         componentType: ComponentType.Button,
@@ -112,14 +114,15 @@ export const coinflip = {
       });
 
       if (response.customId === "coinflip_decline") {
-        await response.update({
-          embeds: [embed.setColor(0xff0000).setFooter({ text: "refuse" })],
-          components: []
-        });
+        const declinedEmbed = EmbedBuilder.from(embed)
+          .setColor(0x95a5a6)
+          .setFooter({ text: "Défi refusé." });
+        
+        await response.update({ embeds: [declinedEmbed], components: [] });
         return;
       }
 
-      // Accepte - verifier encore les soldes
+      // Vérifier à nouveau les soldes
       const [p1Check, p2Check] = await Promise.all([
         prisma.user.findUnique({ where: { id: player1.id }, select: { balance: true } }),
         prisma.user.findUnique({ where: { id: player2.id }, select: { balance: true } }),
@@ -128,28 +131,33 @@ export const coinflip = {
       if (!p1Check || !p2Check || 
           parseFloat(p1Check.balance.toString()) < amount || 
           parseFloat(p2Check.balance.toString()) < amount) {
-        await response.update({
-          embeds: [embed.setColor(0xff0000).setDescription("plus assez d'argent").setFooter({ text: "annule" })],
-          components: []
-        });
+        
+        const errorEmbed = EmbedBuilder.from(embed)
+          .setColor(0xe74c3c)
+          .setDescription("Solde insuffisant.")
+          .setFooter({ text: "Partie annulée." });
+        
+        await response.update({ embeds: [errorEmbed], components: [] });
         return;
       }
 
-      // Lancer la piece
-      const result = Math.random() < 0.5 ? "pile" : "face";
+      // Animation
+      const suspenseEmbed = new EmbedBuilder()
+        .setTitle("🪙 La pièce est lancée...")
+        .setColor(0xf1c40f);
+      
+      await response.update({ embeds: [suspenseEmbed], components: [] });
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Résultat
+      const result = Math.random() < 0.5 ? "Pile" : "Face";
       const winnerId = Math.random() < 0.5 ? player1.id : player2.id;
       const winnerDiscordId = winnerId === player1.id ? interaction.user.id : targetUser.id;
       const winnerName = winnerId === player1.id ? interaction.user.username : targetUser.username;
       const loserName = winnerId === player1.id ? targetUser.username : interaction.user.username;
       const loserId = winnerId === player1.id ? player2.id : player1.id;
 
-      const pot = amount * 2;
-      const fee = Math.floor(pot * HOUSE_FEE_PERCENT) / 100;
-      const winnings = pot - fee;
-
-      // Transaction
       await prisma.$transaction([
-        // Debit les deux joueurs
         prisma.user.update({
           where: { id: player1.id },
           data: { balance: { decrement: amount } }
@@ -158,18 +166,16 @@ export const coinflip = {
           where: { id: player2.id },
           data: { balance: { decrement: amount } }
         }),
-        // Credit le gagnant
         prisma.user.update({
           where: { id: winnerId },
           data: { balance: { increment: winnings } }
         }),
-        // Transactions
         prisma.transaction.create({
           data: {
             userId: winnerId,
             type: "coinflip_win",
             amount: new Prisma.Decimal(winnings - amount),
-            description: `coinflip gagne contre ${loserName}`
+            description: `Coinflip gagné contre ${loserName}`
           }
         }),
         prisma.transaction.create({
@@ -177,29 +183,30 @@ export const coinflip = {
             userId: loserId,
             type: "coinflip_loss",
             amount: new Prisma.Decimal(-amount),
-            description: `coinflip perdu contre ${winnerName}`
+            description: `Coinflip perdu contre ${winnerName}`
           }
         }),
       ]);
 
       const resultEmbed = new EmbedBuilder()
-        .setTitle(`coinflip - ${result.toUpperCase()}`)
-        .setDescription(`**${winnerName}** gagne **${winnings.toFixed(2)}€**`)
+        .setTitle(`🪙 ${result} !`)
+        .setDescription(`**${winnerName}** remporte \`${winnings.toFixed(2)} €\``)
+        .setColor(0x2ecc71)
         .addFields(
-          { name: "resultat", value: result === "pile" ? "🪙 pile" : "🎯 face", inline: true },
-          { name: "gagnant", value: `<@${winnerDiscordId}>`, inline: true }
+          { name: "🏆 Gagnant", value: `<@${winnerDiscordId}>`, inline: true },
+          { name: "💵 Pot total", value: `\`${pot.toFixed(2)} €\``, inline: true },
+          { name: "💳 Frais AntiBank", value: `\`${fee.toFixed(2)} €\``, inline: true }
         )
-        .setColor(0x00ff00)
-        .setFooter({ text: `fee: ${fee.toFixed(2)}€` });
+        .setTimestamp();
 
-      await response.update({ embeds: [resultEmbed], components: [] });
+      await interaction.editReply({ embeds: [resultEmbed] });
 
     } catch {
-      // Timeout
-      await interaction.editReply({
-        embeds: [embed.setColor(0x666666).setFooter({ text: "expire" })],
-        components: []
-      });
+      const expiredEmbed = EmbedBuilder.from(embed)
+        .setColor(0x95a5a6)
+        .setFooter({ text: "Temps écoulé." });
+      
+      await interaction.editReply({ embeds: [expiredEmbed], components: [] });
     }
   },
 };

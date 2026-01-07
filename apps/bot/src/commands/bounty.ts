@@ -3,42 +3,41 @@ import { prisma, Prisma } from "@antibank/db";
 
 const MIN_BOUNTY = 1;
 const MAX_BOUNTY = 100;
-const BOUNTY_DURATION_MS = 48 * 60 * 60 * 1000; // 48h
+const BOUNTY_DURATION_MS = 48 * 60 * 60 * 1000;
 
 export const bounty = {
   data: new SlashCommandBuilder()
     .setName("bounty")
-    .setDescription("mettre une prime sur quelqu'un")
+    .setDescription("Placer une prime sur la tête de quelqu'un")
     .addUserOption((option) =>
       option
-        .setName("user")
-        .setDescription("la cible")
+        .setName("cible")
+        .setDescription("La personne à cibler")
         .setRequired(true)
     )
     .addNumberOption((option) =>
       option
         .setName("montant")
-        .setDescription("montant de la prime")
+        .setDescription("Montant de la prime (1 à 100 €)")
         .setRequired(true)
         .setMinValue(MIN_BOUNTY)
         .setMaxValue(MAX_BOUNTY)
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {
-    const targetUser = interaction.options.getUser("user", true);
+    const targetUser = interaction.options.getUser("cible", true);
     const amount = interaction.options.getNumber("montant", true);
 
     if (targetUser.id === interaction.user.id) {
-      await interaction.reply({ content: "tu peux pas mettre une prime sur toi-meme", ephemeral: true });
+      await interaction.reply({ content: "Vous ne pouvez pas placer une prime sur vous-même.", ephemeral: true });
       return;
     }
 
     if (targetUser.bot) {
-      await interaction.reply({ content: "tu peux pas mettre une prime sur un bot", ephemeral: true });
+      await interaction.reply({ content: "Vous ne pouvez pas cibler un bot.", ephemeral: true });
       return;
     }
 
-    // Verifier les users
     const [poster, target] = await Promise.all([
       prisma.user.findUnique({ 
         where: { discordId: interaction.user.id }, 
@@ -51,22 +50,21 @@ export const bounty = {
     ]);
 
     if (!poster) {
-      await interaction.reply({ content: "t'as pas de compte antibank", ephemeral: true });
+      await interaction.reply({ content: "Vous n'avez pas de compte AntiBank.", ephemeral: true });
       return;
     }
 
     if (!target) {
-      await interaction.reply({ content: `${targetUser.username} n'a pas de compte antibank`, ephemeral: true });
+      await interaction.reply({ content: `**${targetUser.username}** n'a pas de compte AntiBank.`, ephemeral: true });
       return;
     }
 
     const posterBalance = parseFloat(poster.balance.toString());
     if (posterBalance < amount) {
-      await interaction.reply({ content: "pas assez de thunes", ephemeral: true });
+      await interaction.reply({ content: `Solde insuffisant. Vous avez \`${posterBalance.toFixed(2)} €\`.`, ephemeral: true });
       return;
     }
 
-    // Verifier s'il y a deja une bounty active du meme poster sur la meme cible
     const existingBounty = await prisma.$queryRaw<[{ count: bigint }]>`
       SELECT COUNT(*) as count FROM "Bounty"
       WHERE "posterId" = ${poster.id} 
@@ -76,7 +74,7 @@ export const bounty = {
     `;
 
     if (Number(existingBounty[0]?.count || 0) > 0) {
-      await interaction.reply({ content: "t'as deja une prime active sur cette personne", ephemeral: true });
+      await interaction.reply({ content: "Vous avez déjà une prime active sur cette personne.", ephemeral: true });
       return;
     }
 
@@ -84,7 +82,6 @@ export const bounty = {
     const expiresAt = new Date(now.getTime() + BOUNTY_DURATION_MS);
     const bountyId = `bounty_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-    // Deduire l'argent et creer la bounty
     await prisma.$transaction([
       prisma.$executeRaw`
         UPDATE "User" SET balance = balance - ${amount} WHERE id = ${poster.id}
@@ -98,27 +95,29 @@ export const bounty = {
           userId: poster.id,
           type: "bounty_post",
           amount: new Prisma.Decimal(-amount),
-          description: `prime sur ${target.discordUsername}`
+          description: `Prime sur ${target.discordUsername}`
         }
       }),
     ]);
 
-    // Recuperer le total des primes sur la cible
     const totalBounty = await prisma.$queryRaw<[{ total: string | null }]>`
       SELECT SUM(amount)::text as total FROM "Bounty"
       WHERE "targetId" = ${target.id} AND status = 'active' AND "expiresAt" > NOW()
     `;
 
+    const total = parseFloat(totalBounty[0]?.total || "0");
+
     const embed = new EmbedBuilder()
-      .setTitle("nouvelle prime")
-      .setDescription(`**${interaction.user.username}** a mis une prime sur **${targetUser.username}**`)
+      .setTitle("🎯 Nouvelle prime")
+      .setDescription(`**${interaction.user.username}** a placé une prime sur **${targetUser.username}**.`)
+      .setThumbnail(targetUser.displayAvatarURL())
+      .setColor(0xe74c3c)
       .addFields(
-        { name: "montant", value: `${amount.toFixed(2)}€`, inline: true },
-        { name: "total sur la cible", value: `${parseFloat(totalBounty[0]?.total || "0").toFixed(2)}€`, inline: true },
-        { name: "expire", value: `<t:${Math.floor(expiresAt.getTime() / 1000)}:R>`, inline: true }
+        { name: "💵 Montant", value: `\`${amount.toFixed(2)} €\``, inline: true },
+        { name: "💰 Total sur la cible", value: `\`${total.toFixed(2)} €\``, inline: true },
+        { name: "⏳ Expiration", value: `<t:${Math.floor(expiresAt.getTime() / 1000)}:R>`, inline: true }
       )
-      .setColor(0xff4444)
-      .setFooter({ text: "braque cette personne pour recuperer la prime" })
+      .setFooter({ text: "Braque cette personne pour récupérer la prime." })
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed] });

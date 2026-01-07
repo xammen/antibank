@@ -276,17 +276,17 @@ async function resolveExpiredVotes() {
           });
 
           // Mettre a jour le message
-          const embed = EmbedBuilder.from(message.embeds[0])
-            .setColor(0x00ff00)
-            .setFooter({ text: `${dcCount} DC credites!` });
+          const successEmbed = EmbedBuilder.from(message.embeds[0])
+            .setColor(0x2ecc71)
+            .setFooter({ text: `${dcCount} DahkaCoin crédités avec succès.` });
           
-          await message.edit({ embeds: [embed] });
+          await message.edit({ embeds: [successEmbed] });
         } else {
-          const embed = EmbedBuilder.from(message.embeds[0])
-            .setColor(0x666666)
-            .setFooter({ text: "aucun DC donne" });
+          const noVoteEmbed = EmbedBuilder.from(message.embeds[0])
+            .setColor(0x95a5a6)
+            .setFooter({ text: "Aucun DahkaCoin offert." });
           
-          await message.edit({ embeds: [embed] });
+          await message.edit({ embeds: [noVoteEmbed] });
         }
       }
 
@@ -334,8 +334,8 @@ async function resolveWarn(warnId: string, guiltyVotes: number, innocentVotes: n
     await prisma.$executeRaw`
       UPDATE "WarnVote" SET status = 'expired', "resolvedAt" = ${now} WHERE id = ${warnId}
     `;
-    resultText = "expire (pas assez de votants)";
-    color = 0x666666;
+    resultText = "Vote expiré — Quorum non atteint.";
+    color = 0x95a5a6;
   } 
   else if (guiltyVotes > innocentVotes) {
     // Coupable
@@ -362,21 +362,21 @@ async function resolveWarn(warnId: string, guiltyVotes: number, innocentVotes: n
       UPDATE "WarnVote" SET status = 'guilty', "resolvedAt" = ${now} WHERE id = ${warnId}
     `;
 
-    resultText = `COUPABLE - ${warn.accusedName} perd ${amount.toFixed(2)}€`;
-    color = 0xff0000;
+    resultText = `**Coupable** — ${warn.accusedName} perd \`${amount.toFixed(2)} €\``;
+    color = 0xe74c3c;
 
     // Notification justice
-    const embed = new EmbedBuilder()
-      .setTitle("verdict: coupable")
-      .setDescription(`**${warn.accusedName}** a ete reconnu coupable`)
+    const guiltyEmbed = new EmbedBuilder()
+      .setTitle("⚖️ Verdict : Coupable")
+      .setDescription(`**${warn.accusedName}** a été reconnu coupable.`)
       .addFields(
-        { name: "amende", value: `${amount.toFixed(2)}€`, inline: true },
-        { name: "votes", value: `coupable: ${guiltyVotes} | innocent: ${innocentVotes}`, inline: true }
+        { name: "💰 Amende", value: `\`${amount.toFixed(2)} €\``, inline: true },
+        { name: "📊 Votes", value: `Coupable : \`${guiltyVotes}\` — Innocent : \`${innocentVotes}\``, inline: true }
       )
-      .setColor(0xff0000)
+      .setColor(0xe74c3c)
       .setTimestamp();
 
-    await sendNotification(client, "justice", embed);
+    await sendNotification(client, "justice", guiltyEmbed);
   } 
   else {
     // Innocent
@@ -410,34 +410,34 @@ async function resolveWarn(warnId: string, guiltyVotes: number, innocentVotes: n
       UPDATE "WarnVote" SET status = 'innocent', "resolvedAt" = ${now} WHERE id = ${warnId}
     `;
 
-    resultText = `INNOCENT - ${warn.accuserName} perd ${penalty.toFixed(2)}€`;
-    color = 0x00ff00;
+    resultText = `✅ INNOCENT — **${warn.accuserName}** perd \`${penalty.toFixed(2)} €\``;
+    color = 0x2ecc71;
 
     // Notification justice
-    const embed = new EmbedBuilder()
-      .setTitle("verdict: innocent")
-      .setDescription(`**${warn.accusedName}** a ete reconnu innocent`)
+    const innocentEmbed = new EmbedBuilder()
+      .setTitle("⚖️ Verdict : Innocent")
+      .setDescription(`**${warn.accusedName}** a été reconnu innocent`)
       .addFields(
-        { name: "penalite accusateur", value: `${penalty.toFixed(2)}€`, inline: true },
-        { name: "votes", value: `coupable: ${guiltyVotes} | innocent: ${innocentVotes}`, inline: true }
+        { name: "💸 Pénalité accusateur", value: `\`${penalty.toFixed(2)} €\``, inline: true },
+        { name: "📊 Votes", value: `⬆️ \`${guiltyVotes}\` • ⬇️ \`${innocentVotes}\``, inline: true }
       )
-      .setColor(0x00ff00)
+      .setColor(0x2ecc71)
       .setTimestamp();
 
-    await sendNotification(client, "justice", embed);
+    await sendNotification(client, "justice", innocentEmbed);
   }
 
   // Mettre a jour le message original
   try {
-    const embed = EmbedBuilder.from(message.embeds[0])
+    const updatedEmbed = EmbedBuilder.from(message.embeds[0])
       .setColor(color)
       .setFields(
-        { name: "resultat", value: resultText, inline: false },
-        { name: "votes finaux", value: `⬆️ coupable: ${guiltyVotes} | ⬇️ innocent: ${innocentVotes}`, inline: false }
+        { name: "📋 Résultat", value: resultText, inline: false },
+        { name: "📊 Votes finaux", value: `⬆️ Coupable: \`${guiltyVotes}\` • ⬇️ Innocent: \`${innocentVotes}\``, inline: false }
       )
-      .setFooter({ text: "vote termine" });
+      .setFooter({ text: "⚖️ Vote terminé" });
 
-    await message.edit({ embeds: [embed] });
+    await message.edit({ embeds: [updatedEmbed] });
   } catch (e) {
     // Ignore si on peut pas editer
   }
