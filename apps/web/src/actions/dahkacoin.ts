@@ -7,11 +7,11 @@ import { auth } from "@/lib/auth";
 // CONFIGURATION
 // ============================================
 
-const DC_MIN_PRICE = 0.01;
-const DC_MAX_PRICE = 100;  // Hard cap - never above 100€
-const DC_INITIAL_PRICE = 1.00;
+const DC_MIN_PRICE = 0.50;    // Floor raised - never below 0.50€
+const DC_MAX_PRICE = 50;      // Cap lowered - never above 50€
+const DC_INITIAL_PRICE = 3.00;
 const DC_SELL_FEE = 0.02;
-const DC_FAIR_VALUE = 2.00;  // Target ~1-10€, pumps to 20-30€ rare
+const DC_FAIR_VALUE = 3.00;   // Target 1-10€ normal, 15-25€ rare pumps
 
 // ============================================
 // TYPES
@@ -208,23 +208,24 @@ const EVENT_CONFIG: Record<MarketEvent, {
   direction: 'up' | 'down' | 'random' | 'none';
   cooldown: number;
 }> = {
+  // Magnitudes reduced ~50% to keep price in 1-10€ range
   none: { duration: { min: 0, max: 0 }, magnitude: { min: 0, max: 0 }, direction: 'none', cooldown: 0 },
-  whale_pump: { duration: { min: 15, max: 45 }, magnitude: { min: 0.3, max: 1.0 }, direction: 'up', cooldown: 30 },
-  whale_dump: { duration: { min: 15, max: 45 }, magnitude: { min: 0.2, max: 0.6 }, direction: 'down', cooldown: 30 },
-  flash_crash: { duration: { min: 5, max: 15 }, magnitude: { min: 0.4, max: 0.7 }, direction: 'down', cooldown: 60 },
-  mega_pump: { duration: { min: 60, max: 180 }, magnitude: { min: 2.0, max: 5.0 }, direction: 'up', cooldown: 120 },
-  fomo_wave: { duration: { min: 30, max: 90 }, magnitude: { min: 0.2, max: 0.5 }, direction: 'up', cooldown: 45 },
-  panic_wave: { duration: { min: 30, max: 90 }, magnitude: { min: 0.2, max: 0.5 }, direction: 'down', cooldown: 45 },
-  short_squeeze: { duration: { min: 20, max: 60 }, magnitude: { min: 0.5, max: 1.5 }, direction: 'up', cooldown: 60 },
-  rug_pull: { duration: { min: 10, max: 30 }, magnitude: { min: 0.7, max: 0.95 }, direction: 'down', cooldown: 180 },
-  dead_cat_bounce: { duration: { min: 60, max: 120 }, magnitude: { min: 0.2, max: 0.5 }, direction: 'random', cooldown: 90 },
-  calm_before_storm: { duration: { min: 30, max: 60 }, magnitude: { min: 0.3, max: 0.7 }, direction: 'random', cooldown: 60 },
-  volatility_storm: { duration: { min: 45, max: 120 }, magnitude: { min: 3.0, max: 5.0 }, direction: 'none', cooldown: 60 },
+  whale_pump: { duration: { min: 15, max: 45 }, magnitude: { min: 0.15, max: 0.50 }, direction: 'up', cooldown: 30 },
+  whale_dump: { duration: { min: 15, max: 45 }, magnitude: { min: 0.10, max: 0.35 }, direction: 'down', cooldown: 30 },
+  flash_crash: { duration: { min: 5, max: 15 }, magnitude: { min: 0.20, max: 0.40 }, direction: 'down', cooldown: 60 },
+  mega_pump: { duration: { min: 60, max: 180 }, magnitude: { min: 0.80, max: 1.50 }, direction: 'up', cooldown: 120 },
+  fomo_wave: { duration: { min: 30, max: 90 }, magnitude: { min: 0.10, max: 0.30 }, direction: 'up', cooldown: 45 },
+  panic_wave: { duration: { min: 30, max: 90 }, magnitude: { min: 0.10, max: 0.30 }, direction: 'down', cooldown: 45 },
+  short_squeeze: { duration: { min: 20, max: 60 }, magnitude: { min: 0.25, max: 0.60 }, direction: 'up', cooldown: 60 },
+  rug_pull: { duration: { min: 10, max: 30 }, magnitude: { min: 0.40, max: 0.60 }, direction: 'down', cooldown: 180 },
+  dead_cat_bounce: { duration: { min: 60, max: 120 }, magnitude: { min: 0.10, max: 0.25 }, direction: 'random', cooldown: 90 },
+  calm_before_storm: { duration: { min: 30, max: 60 }, magnitude: { min: 0.15, max: 0.35 }, direction: 'random', cooldown: 60 },
+  volatility_storm: { duration: { min: 45, max: 120 }, magnitude: { min: 2.0, max: 3.0 }, direction: 'none', cooldown: 60 },
   price_freeze: { duration: { min: 10, max: 30 }, magnitude: { min: 0, max: 0 }, direction: 'none', cooldown: 90 },
   momentum_flip: { duration: { min: 5, max: 10 }, magnitude: { min: 0, max: 0 }, direction: 'none', cooldown: 60 },
-  mystery_whale: { duration: { min: 30, max: 90 }, magnitude: { min: 0.3, max: 1.0 }, direction: 'random', cooldown: 60 },
-  double_or_nothing: { duration: { min: 5, max: 10 }, magnitude: { min: 1.0, max: 1.0 }, direction: 'random', cooldown: 120 },
-  golden_hour: { duration: { min: 60, max: 180 }, magnitude: { min: 2.0, max: 2.0 }, direction: 'up', cooldown: 180 },
+  mystery_whale: { duration: { min: 30, max: 90 }, magnitude: { min: 0.15, max: 0.50 }, direction: 'random', cooldown: 60 },
+  double_or_nothing: { duration: { min: 5, max: 10 }, magnitude: { min: 0.50, max: 0.50 }, direction: 'random', cooldown: 120 },
+  golden_hour: { duration: { min: 60, max: 180 }, magnitude: { min: 0.80, max: 1.20 }, direction: 'up', cooldown: 180 },
 };
 
 // Event probabilities per second, modified by phase
@@ -256,21 +257,21 @@ function calculateEventProbs(phase: MarketPhase, momentum: number): { pump: numb
 // ============================================
 
 const VOLATILITY_BY_PHASE: Record<MarketPhase, { base: number; max: number }> = {
-  accumulation: { base: 0.001, max: 0.01 },
-  markup: { base: 0.002, max: 0.02 },
-  euphoria: { base: 0.004, max: 0.04 },  // Reduced - less crazy pumps
-  distribution: { base: 0.005, max: 0.05 },
-  decline: { base: 0.004, max: 0.04 },
-  capitulation: { base: 0.008, max: 0.08 },  // Reduced
-  recovery: { base: 0.002, max: 0.02 },
+  accumulation: { base: 0.0006, max: 0.006 },  // very calm
+  markup:       { base: 0.0012, max: 0.012 },  // building
+  euphoria:     { base: 0.0020, max: 0.020 },  // exciting but controlled
+  distribution: { base: 0.0025, max: 0.025 },  // choppy
+  decline:      { base: 0.0020, max: 0.020 },  // steady bleed
+  capitulation: { base: 0.0035, max: 0.035 },  // painful but not catastrophic
+  recovery:     { base: 0.0010, max: 0.010 },  // slow rebuild
 };
 
 function getVolatilityName(base: number): string {
-  if (base < 0.002) return 'calme';
-  if (base < 0.005) return 'normal';
-  if (base < 0.015) return 'volatile';
-  if (base < 0.05) return 'extreme';
-  return 'chaos';
+  if (base < 0.001) return 'calme';
+  if (base < 0.002) return 'normal';
+  if (base < 0.003) return 'volatile';
+  if (base < 0.004) return 'agité';
+  return 'chaotique';
 }
 
 // ============================================
@@ -471,31 +472,31 @@ export async function tickPrice(): Promise<{
   } else if (state.nextEventIn <= 0) {
     let event: MarketEvent = 'none';
     
-    // REGULATION: Force correction if too many pumps or crashes
+    // REGULATION: Force correction based on price deviation from fair value (3€)
     const pumpImbalance = state.recentPumps - state.recentCrashes;
     const priceVsFair = state.price / DC_FAIR_VALUE;
     
-    // Price thresholds: fair=2€, so 10€=5x, 20€=10x, 30€=15x
-    // Force crash if: 2+ more pumps than crashes OR price getting too high
-    if (pumpImbalance >= 2 || priceVsFair > 5) {  // >10€ triggers correction
-      // Forced correction - severity based on price level
-      if (priceVsFair > 15 || pumpImbalance >= 4) {  // >30€ = rug pull
-        event = 'rug_pull';
-      } else if (priceVsFair > 10 || pumpImbalance >= 3) {  // >20€ = flash crash
-        event = 'flash_crash';
+    // Price thresholds: fair=3€
+    // >10.5€ (3.5x) = whale_dump, >15€ (5x) = flash_crash, >21€ (7x) = rug_pull
+    // <1.5€ (0.5x) = whale_pump, <1€ (0.33x) = short_squeeze, <0.6€ (0.2x) = mega_pump
+    
+    if (priceVsFair > 3.5 || pumpImbalance >= 2) {  // >10.5€ or 2+ pump imbalance
+      if (priceVsFair > 7 || pumpImbalance >= 4) {
+        event = 'rug_pull';        // >21€
+      } else if (priceVsFair > 5 || pumpImbalance >= 3) {
+        event = 'flash_crash';     // >15€
       } else {
-        event = 'whale_dump';  // >10€ = whale dump
+        event = 'whale_dump';      // >10.5€
       }
       state.recentPumps = 0;
     }
-    // Force pump if: 2+ more crashes than pumps OR price too low
-    else if (pumpImbalance <= -2 || priceVsFair < 0.25) {  // <0.50€
-      if (pumpImbalance <= -4 || priceVsFair < 0.1) {
-        event = 'mega_pump';
-      } else if (pumpImbalance <= -3 || priceVsFair < 0.15) {
-        event = 'short_squeeze';
+    else if (priceVsFair < 0.5 || pumpImbalance <= -2) {  // <1.5€ or 2+ crash imbalance
+      if (priceVsFair < 0.2 || pumpImbalance <= -4) {
+        event = 'mega_pump';       // <0.6€ emergency
+      } else if (priceVsFair < 0.33 || pumpImbalance <= -3) {
+        event = 'short_squeeze';   // <1€
       } else {
-        event = 'whale_pump';
+        event = 'whale_pump';      // <1.5€
       }
       state.recentCrashes = 0;
     }
@@ -547,23 +548,23 @@ export async function tickPrice(): Promise<{
     state.nextEventIn = randomInRange(EVENT_CHECK_INTERVAL.min, EVENT_CHECK_INTERVAL.max) * 1000;
   }
 
-  // Update momentum with decay - faster decay to prevent runaway
-  state.momentum *= 0.99;
+  // Update momentum with faster decay - prevents runaway spirals
+  state.momentum *= 0.985;  // Momentum halves every ~46 ticks
   
-  // Phase influences momentum - euphoria now triggers selling pressure
+  // Phase influences momentum - reduced to prevent extreme swings
   const phaseInfluence: Record<MarketPhase, number> = {
-    accumulation: 0.003,
-    markup: 0.008,
-    euphoria: -0.005,  // Euphoria = people start taking profits, negative pressure
-    distribution: -0.010,
-    decline: -0.012,
-    capitulation: -0.015,
-    recovery: 0.005,
+    accumulation:  0.001,   // very slight bullish
+    markup:        0.003,   // moderate bullish
+    euphoria:     -0.002,   // mild profit taking
+    distribution: -0.004,   // moderate selling
+    decline:      -0.005,   // steady decline
+    capitulation: -0.006,   // painful but recoverable
+    recovery:      0.002,   // slow rebuild
   };
   state.momentum += phaseInfluence[state.phase] * deltaSeconds;
   
   // Add random momentum fluctuation for more dynamic probs
-  state.momentum += (Math.random() - 0.5) * 0.015 * deltaSeconds;
+  state.momentum += (Math.random() - 0.5) * 0.01 * deltaSeconds;
   state.momentum = Math.max(-1, Math.min(1, state.momentum));
 
   // Calculate price change
@@ -610,12 +611,12 @@ export async function tickPrice(): Promise<{
       }
     }
     
-    // Mean reversion at extremes
-    if (state.price > DC_FAIR_VALUE * 20) {
-      priceChange -= 0.0001 * (state.price / DC_FAIR_VALUE) * deltaSeconds;
-    } else if (state.price < DC_FAIR_VALUE * 0.05) {
-      priceChange += 0.0001 * (DC_FAIR_VALUE / state.price) * deltaSeconds;
-    }
+    // CONTINUOUS MEAN REVERSION - always pulls toward fair value (3€)
+    // Creates a "gravity well" - the further from fair, the stronger the pull
+    const priceRatio = state.price / DC_FAIR_VALUE;
+    const deviationFromFair = Math.log(priceRatio); // log scale for symmetry
+    const reversionStrength = 0.0005;
+    priceChange += -deviationFromFair * reversionStrength * deltaSeconds;
     
     // Random spike (5% chance)
     if (Math.random() < 0.05) {

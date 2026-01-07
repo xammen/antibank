@@ -103,7 +103,6 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
   const [period, setPeriod] = useState<"1h" | "24h" | "7d">("1h");
   const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
   const [tradeAmount, setTradeAmount] = useState("");
-  const [showPhaseInfo, setShowPhaseInfo] = useState(false);
   const [isTrading, setIsTrading] = useState(false);
   const [tradeResult, setTradeResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -475,51 +474,8 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
       {/* Probabilities */}
       <div className="grid grid-cols-2 gap-3">
         {/* Next Phase Probabilities */}
-        <div className="border border-[var(--line)] p-3 bg-[rgba(255,255,255,0.01)] relative">
-          <div className="flex items-center gap-2 mb-3">
-            <button
-              onClick={() => setShowPhaseInfo(!showPhaseInfo)}
-              className="w-4 h-4 rounded-full border border-[var(--text-muted)] text-[var(--text-muted)] text-[0.5rem] hover:border-[var(--text)] hover:text-[var(--text)] transition-colors flex items-center justify-center"
-            >
-              i
-            </button>
-            <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)]">prochaine phase</p>
-          </div>
-          
-          {showPhaseInfo && (
-            <div className="absolute left-0 right-0 top-8 mx-2 p-3 bg-[#151515] border border-[var(--line)] text-[0.6rem] text-[var(--text-muted)] z-10 space-y-2">
-              <p className="text-[var(--text)] mb-2">le marché passe par des cycles. les montées sont courtes, les chutes durent longtemps.</p>
-              
-              <p><span className="text-[var(--text)]">accumulation</span> <span className="text-[var(--text-muted)]">(1-3min)</span></p>
-              <p className="ml-2">→ période calme. les malins achètent discrètement.</p>
-              
-              <p><span className="text-green-400">hausse</span> <span className="text-[var(--text-muted)]">(45s-1.5min)</span></p>
-              <p className="ml-2">→ ça commence à monter. le momentum se construit.</p>
-              
-              <p><span className="text-green-500">euphorie</span> <span className="text-[var(--text-muted)]">(20-45s)</span></p>
-              <p className="ml-2">→ TO THE MOON! 🚀 mais ça dure jamais. vends vite ou pleure.</p>
-              
-              <p><span className="text-orange-400">distribution</span> <span className="text-[var(--text-muted)]">(1-2min)</span></p>
-              <p className="ml-2">→ les baleines vendent en douce. ça devient instable.</p>
-              
-              <p><span className="text-red-400">baisse</span> <span className="text-[var(--text-muted)]">(1.5-2.5min)</span></p>
-              <p className="ml-2">→ lente descente. tout le monde espère que ça remonte.</p>
-              
-              <p><span className="text-red-500">capitulation</span> <span className="text-[var(--text-muted)]">(2-4min)</span></p>
-              <p className="ml-2">→ PANIQUE TOTALE. ça dure longtemps. les mains de diamant achètent ici.</p>
-              
-              <p><span className="text-blue-400">récupération</span> <span className="text-[var(--text-muted)]">(1.5-3min)</span></p>
-              <p className="ml-2">→ le pire est passé. reconstruction lente.</p>
-              
-              <button 
-                onClick={() => setShowPhaseInfo(false)}
-                className="mt-3 text-[var(--text)] underline"
-              >
-                compris
-              </button>
-            </div>
-          )}
-          
+        <div className="border border-[var(--line)] p-3 bg-[rgba(255,255,255,0.01)]">
+          <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">prochaine phase</p>
           <div className="space-y-2">
             {sortedPhases.map(([p, prob]) => (
               <div key={p} className="flex items-center gap-2">
@@ -692,6 +648,20 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Phase Guide */}
+      <div className="text-[0.55rem] text-[var(--text-muted)] space-y-1 opacity-60">
+        <p className="text-[var(--text)] text-[0.6rem] mb-2">cycles du marché</p>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+          <p><span className="text-[var(--text)]">accumulation</span> 1-3min · calme, acheter</p>
+          <p><span className="text-green-400">hausse</span> 45s-1.5min · ça monte</p>
+          <p><span className="text-green-500">euphorie</span> 20-45s · moon, vendre vite</p>
+          <p><span className="text-orange-400">distribution</span> 1-2min · instable</p>
+          <p><span className="text-red-400">baisse</span> 1.5-2.5min · descente</p>
+          <p><span className="text-red-500">capitulation</span> 2-4min · panique, opportunité</p>
+          <p><span className="text-blue-400">récupération</span> 1.5-3min · ça repart</p>
+        </div>
       </div>
     </div>
   );
