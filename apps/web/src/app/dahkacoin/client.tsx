@@ -121,18 +121,19 @@ const PHASE_TRANSITIONS: Record<MarketPhase, Partial<Record<MarketPhase, number>
 
 // Event probabilities per phase (base probabilities * multipliers)
 const EVENT_BASE_PROBS = {
-  pump: 0.003,  // whale_pump + mega_pump + fomo combined per second
-  crash: 0.002, // whale_dump + flash_crash + panic combined per second
+  pump: 0.0015,   // whale_pump + mega_pump + fomo + short_squeeze + golden_hour
+  crash: 0.0012,  // whale_dump + flash_crash + panic + rug_pull
+  chaos: 0.001,   // calm_before_storm + volatility_storm + double_or_nothing + mystery
 };
 
-const PHASE_EVENT_MULTIPLIERS: Record<MarketPhase, { pump: number; crash: number }> = {
-  accumulation: { pump: 1.5, crash: 0.3 },
-  markup: { pump: 2.0, crash: 0.5 },
-  euphoria: { pump: 0.5, crash: 2.5 },  // More likely to crash from euphoria
-  distribution: { pump: 0.5, crash: 2.0 },
-  decline: { pump: 0.5, crash: 1.5 },
-  capitulation: { pump: 1.5, crash: 0.3 },  // More likely to pump from bottom
-  recovery: { pump: 1.5, crash: 0.5 },
+const PHASE_EVENT_MULTIPLIERS: Record<MarketPhase, { pump: number; crash: number; chaos: number }> = {
+  accumulation: { pump: 1.5, crash: 0.3, chaos: 1.5 },
+  markup: { pump: 2.5, crash: 0.5, chaos: 1.0 },
+  euphoria: { pump: 0.5, crash: 3.0, chaos: 2.0 },  // RUG PULL danger!
+  distribution: { pump: 0.5, crash: 2.0, chaos: 1.5 },
+  decline: { pump: 0.5, crash: 1.5, chaos: 1.5 },
+  capitulation: { pump: 2.0, crash: 0.3, chaos: 2.0 },  // Short squeeze + double or nothing
+  recovery: { pump: 1.5, crash: 0.5, chaos: 1.0 },
 };
 
 // Animated price display
@@ -213,6 +214,7 @@ function PhaseTimeline({
   // Calculate event probabilities for next 60 seconds
   const pumpChance = Math.min(99, Math.round(EVENT_BASE_PROBS.pump * eventMultipliers.pump * 60 * 100));
   const crashChance = Math.min(99, Math.round(EVENT_BASE_PROBS.crash * eventMultipliers.crash * 60 * 100));
+  const chaosChance = Math.min(99, Math.round(EVENT_BASE_PROBS.chaos * eventMultipliers.chaos * 60 * 100));
   
   // Get most likely next phases
   const sortedTransitions = Object.entries(transitions)
@@ -328,9 +330,9 @@ function PhaseTimeline({
         {/* Event chances */}
         <div>
           <p className="text-xs text-[var(--text-muted)] mb-2">chance d'event (60s)</p>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <div className="flex items-center gap-2">
-              <span className="text-green-400">🚀</span>
+              <span className="text-green-400 text-sm">🚀</span>
               <div className="flex-1 h-2 bg-gray-800 rounded overflow-hidden">
                 <div 
                   className="h-full bg-green-500"
@@ -340,7 +342,7 @@ function PhaseTimeline({
               <span className="text-xs text-green-400 w-8">{pumpChance}%</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-red-400">💥</span>
+              <span className="text-red-400 text-sm">💥</span>
               <div className="flex-1 h-2 bg-gray-800 rounded overflow-hidden">
                 <div 
                   className="h-full bg-red-500"
@@ -349,7 +351,20 @@ function PhaseTimeline({
               </div>
               <span className="text-xs text-red-400 w-8">{crashChance}%</span>
             </div>
+            <div className="flex items-center gap-2">
+              <span className="text-purple-400 text-sm">🎲</span>
+              <div className="flex-1 h-2 bg-gray-800 rounded overflow-hidden">
+                <div 
+                  className="h-full bg-purple-500"
+                  style={{ width: `${chaosChance}%` }}
+                />
+              </div>
+              <span className="text-xs text-purple-400 w-8">{chaosChance}%</span>
+            </div>
           </div>
+          <p className="text-[10px] text-[var(--text-muted)] mt-1">
+            🚀 pump · 💥 crash · 🎲 chaos
+          </p>
         </div>
       </div>
 
@@ -658,22 +673,44 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
   const getEventBanner = () => {
     if (activeEvent === "none") return null;
     
-    const events: Record<string, { text: string; color: string }> = {
-      whale_pump: { text: "🐋 WHALE PUMP!", color: "border-green-500 bg-green-500/10 text-green-400" },
-      whale_dump: { text: "🐋 WHALE DUMP!", color: "border-red-500 bg-red-500/10 text-red-400" },
-      flash_crash: { text: "⚡ FLASH CRASH!", color: "border-red-600 bg-red-600/10 text-red-300" },
-      mega_pump: { text: "🚀 MEGA PUMP!", color: "border-green-400 bg-green-400/10 text-green-300" },
-      liquidity_crisis: { text: "💀 LIQUIDITE CRISIS!", color: "border-yellow-500 bg-yellow-500/10 text-yellow-400" },
-      fomo_wave: { text: "📈 FOMO WAVE!", color: "border-green-500 bg-green-500/10 text-green-400" },
-      panic_wave: { text: "📉 PANIC!", color: "border-red-500 bg-red-500/10 text-red-400" },
+    const events: Record<string, { text: string; color: string; description: string }> = {
+      // Market events
+      whale_pump: { text: "🐋 WHALE PUMP", color: "border-green-500 bg-green-500/10 text-green-400", description: "achat massif detecte" },
+      whale_dump: { text: "🐋 WHALE DUMP", color: "border-red-500 bg-red-500/10 text-red-400", description: "vente massive detectee" },
+      flash_crash: { text: "⚡ FLASH CRASH", color: "border-red-600 bg-red-600/10 text-red-300", description: "effondrement eclair" },
+      mega_pump: { text: "🚀 MEGA PUMP", color: "border-green-400 bg-green-400/10 text-green-300", description: "to the moon!" },
+      fomo_wave: { text: "🌊 FOMO WAVE", color: "border-green-500 bg-green-500/10 text-green-400", description: "tout le monde achete" },
+      panic_wave: { text: "😱 PANIQUE", color: "border-red-500 bg-red-500/10 text-red-400", description: "vente de panique" },
+      short_squeeze: { text: "🔥 SHORT SQUEEZE", color: "border-green-400 bg-green-400/10 text-green-300", description: "les shorts se font liquider" },
+      rug_pull: { text: "🧹 RUG PULL", color: "border-red-700 bg-red-700/20 text-red-200", description: "SCAM! tout s'effondre" },
+      dead_cat_bounce: { text: "🐱 DEAD CAT BOUNCE", color: "border-yellow-500 bg-yellow-500/10 text-yellow-400", description: "faux rebond... attention" },
+      // Volatility events
+      calm_before_storm: { text: "😶‍🌫️ CALME AVANT TEMPETE", color: "border-purple-500 bg-purple-500/10 text-purple-400", description: "trop calme... mefiance" },
+      volatility_storm: { text: "🌪️ TEMPETE", color: "border-orange-500 bg-orange-500/10 text-orange-400", description: "volatilite extreme" },
+      price_freeze: { text: "🧊 PRIX GELE", color: "border-cyan-500 bg-cyan-500/10 text-cyan-400", description: "prix bloque temporairement" },
+      // Timing events
+      phase_accelerator: { text: "⏩ ACCELERATION", color: "border-blue-500 bg-blue-500/10 text-blue-400", description: "phase acceleree" },
+      phase_skip: { text: "⏭️ SAUT DE PHASE", color: "border-purple-600 bg-purple-600/10 text-purple-300", description: "changement brutal" },
+      momentum_flip: { text: "🔄 RETOURNEMENT", color: "border-yellow-400 bg-yellow-400/10 text-yellow-300", description: "momentum inverse" },
+      // Special events
+      mystery_whale: { text: "🎭 BALEINE MYSTERE", color: "border-indigo-500 bg-indigo-500/10 text-indigo-400", description: "direction inconnue..." },
+      double_or_nothing: { text: "🎲 QUITTE OU DOUBLE", color: "border-pink-500 bg-pink-500/10 text-pink-400", description: "+100% ou -50%?" },
+      golden_hour: { text: "✨ HEURE DOREE", color: "border-yellow-400 bg-yellow-400/10 text-yellow-300", description: "gains doubles!" },
     };
     
     const event = events[activeEvent];
     if (!event) return null;
     
     return (
-      <div className={`p-4 border text-center animate-pulse ${event.color}`}>
-        {event.text} (intensite: {(eventIntensity * 100).toFixed(0)}%)
+      <div className={`p-4 border text-center ${event.color} ${activeEvent === 'rug_pull' || activeEvent === 'flash_crash' ? 'animate-pulse' : ''}`}>
+        <div className="text-lg font-medium">{event.text}</div>
+        <div className="text-sm opacity-80">{event.description}</div>
+        <div className="mt-1 h-1 bg-black/20 rounded overflow-hidden">
+          <div 
+            className="h-full bg-current transition-all duration-300"
+            style={{ width: `${eventIntensity * 100}%` }}
+          />
+        </div>
       </div>
     );
   };

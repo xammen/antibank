@@ -27,14 +27,29 @@ type MarketPhase =
   | 'recovery';      // Bottom forming
 
 type ExtremeEvent = 
+  // Market events (price impact)
   | 'none'
   | 'whale_pump'       // Big buyer (+30% to +100%)
   | 'whale_dump'       // Big seller (-20% to -60%)
   | 'flash_crash'      // Instant -40% to -70%
   | 'mega_pump'        // Sustained +200% to +500%
-  | 'liquidity_crisis' // Price frozen, then big move
-  | 'fomo_wave'        // Cascading buys
-  | 'panic_wave';      // Cascading sells
+  | 'fomo_wave'        // Cascading buys (+20% to +50%)
+  | 'panic_wave'       // Cascading sells (-20% to -50%)
+  | 'short_squeeze'    // Forced buys, rapid +50% to +150%
+  | 'rug_pull'         // Classic crypto scam -70% to -95%
+  | 'dead_cat_bounce'  // Fake recovery +20-50% then -30-60%
+  // Volatility events
+  | 'calm_before_storm'  // Low volatility then EXPLOSION
+  | 'volatility_storm'   // 5x volatility for duration
+  | 'price_freeze'       // Price locked, tension builds
+  // Timing events  
+  | 'phase_accelerator'  // Current phase ends 3x faster
+  | 'phase_skip'         // Jump to next dangerous phase
+  | 'momentum_flip'      // Instant momentum reversal
+  // Special events
+  | 'mystery_whale'      // Unknown direction until reveal
+  | 'double_or_nothing'  // 50/50 chance: +100% or -50%
+  | 'golden_hour';       // All gains doubled for duration
 
 interface PricePoint {
   price: number;
@@ -128,49 +143,118 @@ const VOLATILITY_BY_PHASE: Record<MarketPhase, { base: number; max: number }> = 
   recovery:      { base: 0.003, max: 0.03  },
 };
 
-// Event probabilities per tick
+// Event probabilities per tick (per second)
 const EVENT_PROBABILITIES: Record<ExtremeEvent, number> = {
   none: 0,
-  whale_pump: 0.0008,       // ~0.08%
-  whale_dump: 0.0008,
-  flash_crash: 0.0002,      // Rare but devastating
-  mega_pump: 0.0001,        // Very rare
-  liquidity_crisis: 0.0001,
-  fomo_wave: 0.0005,
-  panic_wave: 0.0005,
+  // Market events
+  whale_pump: 0.0006,       
+  whale_dump: 0.0006,
+  flash_crash: 0.0002,      
+  mega_pump: 0.0001,        
+  fomo_wave: 0.0004,
+  panic_wave: 0.0004,
+  short_squeeze: 0.0002,
+  rug_pull: 0.00005,        // Very rare, devastating
+  dead_cat_bounce: 0.0002,
+  // Volatility events
+  calm_before_storm: 0.0003,
+  volatility_storm: 0.0003,
+  price_freeze: 0.0002,
+  // Timing events
+  phase_accelerator: 0.0003,
+  phase_skip: 0.0001,
+  momentum_flip: 0.0003,
+  // Special events
+  mystery_whale: 0.0002,
+  double_or_nothing: 0.0001,
+  golden_hour: 0.0001,
 };
 
 const EVENT_DURATIONS: Record<ExtremeEvent, { min: number; max: number }> = {
   none: { min: 0, max: 0 },
-  whale_pump: { min: 10, max: 30 },
-  whale_dump: { min: 10, max: 30 },
+  // Market events
+  whale_pump: { min: 15, max: 45 },
+  whale_dump: { min: 15, max: 45 },
   flash_crash: { min: 5, max: 15 },
-  mega_pump: { min: 60, max: 180 },   // 1-3 minutes of moon
-  liquidity_crisis: { min: 30, max: 60 },
-  fomo_wave: { min: 20, max: 60 },
-  panic_wave: { min: 20, max: 60 },
+  mega_pump: { min: 60, max: 180 },
+  fomo_wave: { min: 30, max: 90 },
+  panic_wave: { min: 30, max: 90 },
+  short_squeeze: { min: 20, max: 60 },
+  rug_pull: { min: 10, max: 30 },
+  dead_cat_bounce: { min: 60, max: 120 },  // Longer - fake recovery then crash
+  // Volatility events
+  calm_before_storm: { min: 30, max: 60 },  // Calm period before explosion
+  volatility_storm: { min: 45, max: 120 },
+  price_freeze: { min: 10, max: 30 },
+  // Timing events
+  phase_accelerator: { min: 30, max: 60 },
+  phase_skip: { min: 5, max: 10 },  // Instant
+  momentum_flip: { min: 5, max: 10 },
+  // Special events
+  mystery_whale: { min: 30, max: 90 },
+  double_or_nothing: { min: 5, max: 10 },  // Instant resolution
+  golden_hour: { min: 60, max: 180 },
 };
 
 const EVENT_MAGNITUDES: Record<ExtremeEvent, { min: number; max: number }> = {
   none: { min: 0, max: 0 },
+  // Market events
   whale_pump: { min: 0.30, max: 1.00 },      // +30% to +100%
   whale_dump: { min: 0.20, max: 0.60 },      // -20% to -60%
   flash_crash: { min: 0.40, max: 0.70 },     // -40% to -70%
   mega_pump: { min: 2.00, max: 5.00 },       // +200% to +500%
-  liquidity_crisis: { min: 0.30, max: 0.80 },
   fomo_wave: { min: 0.20, max: 0.50 },
   panic_wave: { min: 0.20, max: 0.50 },
+  short_squeeze: { min: 0.50, max: 1.50 },   // +50% to +150%
+  rug_pull: { min: 0.70, max: 0.95 },        // -70% to -95%
+  dead_cat_bounce: { min: 0.20, max: 0.50 }, // First bounce up, then crash
+  // Volatility events (magnitude = volatility multiplier)
+  calm_before_storm: { min: 0.10, max: 0.20 },  // 10-20% normal volatility
+  volatility_storm: { min: 3.00, max: 5.00 },   // 3-5x volatility
+  price_freeze: { min: 0, max: 0 },              // No movement
+  // Timing events
+  phase_accelerator: { min: 2.0, max: 3.0 },    // 2-3x speed
+  phase_skip: { min: 0, max: 0 },
+  momentum_flip: { min: 0, max: 0 },
+  // Special events
+  mystery_whale: { min: 0.30, max: 1.00 },      // Direction revealed at end
+  double_or_nothing: { min: 1.00, max: 1.00 },  // +100% or -50%
+  golden_hour: { min: 2.00, max: 2.00 },        // 2x gains
 };
 
 // Phase-dependent event multipliers
 const PHASE_EVENT_MULTIPLIERS: Record<MarketPhase, Partial<Record<ExtremeEvent, number>>> = {
-  accumulation:  { whale_pump: 2.0, whale_dump: 0.5, flash_crash: 0.3, mega_pump: 1.5 },
-  markup:        { whale_pump: 1.5, whale_dump: 0.5, flash_crash: 0.5, mega_pump: 2.0, fomo_wave: 1.5 },
-  euphoria:      { whale_pump: 0.5, whale_dump: 2.0, flash_crash: 1.5, mega_pump: 0.5, fomo_wave: 2.0 },
-  distribution:  { whale_pump: 0.5, whale_dump: 2.0, flash_crash: 1.0, panic_wave: 1.0 },
-  decline:       { whale_pump: 0.5, whale_dump: 1.5, flash_crash: 1.5, panic_wave: 1.5 },
-  capitulation:  { whale_pump: 1.0, whale_dump: 0.5, flash_crash: 0.5 },
-  recovery:      { whale_pump: 1.5, whale_dump: 0.5, mega_pump: 1.0, fomo_wave: 1.0 },
+  accumulation: { 
+    whale_pump: 2.0, whale_dump: 0.5, flash_crash: 0.3, mega_pump: 1.5,
+    calm_before_storm: 2.0, golden_hour: 1.5, mystery_whale: 1.5,
+  },
+  markup: { 
+    whale_pump: 1.5, whale_dump: 0.5, flash_crash: 0.5, mega_pump: 2.5, fomo_wave: 2.0,
+    short_squeeze: 2.0, volatility_storm: 1.5, phase_accelerator: 1.5,
+  },
+  euphoria: { 
+    whale_dump: 2.5, flash_crash: 2.0, rug_pull: 5.0, // RUG PULL most likely here!
+    panic_wave: 2.0, dead_cat_bounce: 0.5, double_or_nothing: 2.0,
+    momentum_flip: 2.0, phase_skip: 2.0,
+  },
+  distribution: { 
+    whale_dump: 2.0, flash_crash: 1.5, panic_wave: 1.5,
+    calm_before_storm: 1.5, mystery_whale: 2.0, price_freeze: 1.5,
+  },
+  decline: { 
+    whale_dump: 1.5, flash_crash: 1.5, panic_wave: 2.0,
+    dead_cat_bounce: 2.0, // Fake recoveries happen here
+    volatility_storm: 1.5, momentum_flip: 1.5,
+  },
+  capitulation: { 
+    whale_pump: 2.0, short_squeeze: 3.0, // Squeezes happen at bottom
+    dead_cat_bounce: 3.0, golden_hour: 2.0,
+    double_or_nothing: 1.5, phase_accelerator: 2.0,
+  },
+  recovery: { 
+    whale_pump: 1.5, mega_pump: 1.5, fomo_wave: 1.5,
+    short_squeeze: 1.5, golden_hour: 1.5, mystery_whale: 1.0,
+  },
 };
 
 // ============================================
@@ -183,16 +267,26 @@ function randomInRange(min: number, max: number): number {
 
 function getEventDirection(event: ExtremeEvent): number {
   switch (event) {
+    // Bullish events
     case 'whale_pump':
     case 'mega_pump':
     case 'fomo_wave':
+    case 'short_squeeze':
+    case 'golden_hour':
       return 1;
+    // Bearish events
     case 'whale_dump':
     case 'flash_crash':
     case 'panic_wave':
+    case 'rug_pull':
       return -1;
-    case 'liquidity_crisis':
+    // Special cases
+    case 'mystery_whale':
+    case 'double_or_nothing':
       return Math.random() > 0.5 ? 1 : -1;
+    case 'dead_cat_bounce':
+      return 1; // Starts up, then crashes (handled in price calc)
+    // Neutral/volatility events
     default:
       return 0;
   }
@@ -257,7 +351,12 @@ async function getMarketState(): Promise<MarketState> {
   }
   
   // Validate event
-  const validEvents: ExtremeEvent[] = ['none', 'whale_pump', 'whale_dump', 'flash_crash', 'mega_pump', 'liquidity_crisis', 'fomo_wave', 'panic_wave'];
+  const validEvents: ExtremeEvent[] = [
+    'none', 'whale_pump', 'whale_dump', 'flash_crash', 'mega_pump', 'fomo_wave', 'panic_wave',
+    'short_squeeze', 'rug_pull', 'dead_cat_bounce', 'calm_before_storm', 'volatility_storm',
+    'price_freeze', 'phase_accelerator', 'phase_skip', 'momentum_flip', 'mystery_whale',
+    'double_or_nothing', 'golden_hour'
+  ];
   if (!validEvents.includes(parsed.activeEvent)) {
     parsed.activeEvent = 'none';
   }
@@ -315,6 +414,8 @@ function checkForEvents(state: MarketState, now: number): void {
   if (state.activeEvent !== 'none') {
     const elapsed = now - state.eventStartTime;
     if (elapsed >= state.eventDuration) {
+      // Handle end-of-event effects
+      handleEventEnd(state);
       state.activeEvent = 'none';
       state.eventIntensity = 0;
     } else {
@@ -325,8 +426,8 @@ function checkForEvents(state: MarketState, now: number): void {
     return;
   }
   
-  // Cooldown: no events within 30 seconds
-  if (now - state.lastEventTime < 30000) return;
+  // Cooldown: no events within 20 seconds (was 30)
+  if (now - state.lastEventTime < 20000) return;
   
   // Roll for each event type
   const multipliers = PHASE_EVENT_MULTIPLIERS[state.phase];
@@ -346,9 +447,44 @@ function checkForEvents(state: MarketState, now: number): void {
       );
       state.eventIntensity = 0.5;
       state.lastEventTime = now;
+      
+      // Handle start-of-event effects
+      handleEventStart(state, event as ExtremeEvent, now);
       return;
     }
   }
+}
+
+function handleEventStart(state: MarketState, event: ExtremeEvent, now: number): void {
+  switch (event) {
+    case 'momentum_flip':
+      state.momentum = -state.momentum;
+      break;
+    case 'phase_skip':
+      // Skip to a dangerous phase based on current momentum
+      if (state.momentum > 0) {
+        state.phase = 'euphoria';
+      } else {
+        state.phase = 'capitulation';
+      }
+      state.phaseStartTime = now;
+      state.phaseDuration = randomInRange(
+        PHASE_DURATIONS[state.phase].min * 1000,
+        PHASE_DURATIONS[state.phase].max * 1000
+      );
+      break;
+    case 'phase_accelerator':
+      // Reduce remaining phase duration
+      const elapsed = now - state.phaseStartTime;
+      const remaining = state.phaseDuration - elapsed;
+      state.phaseDuration = state.phaseStartTime + elapsed + (remaining / 3);
+      break;
+  }
+}
+
+function handleEventEnd(state: MarketState): void {
+  // Most events don't need special end handling
+  // But we could add things like "aftermath" effects here
 }
 
 // ============================================
@@ -356,24 +492,64 @@ function checkForEvents(state: MarketState, now: number): void {
 // ============================================
 
 function calculatePriceChange(state: MarketState, deltaSeconds: number): number {
-  const { phase, momentum, activeEvent, eventIntensity, price } = state;
+  const { phase, momentum, activeEvent, eventIntensity, price, eventStartTime, eventDuration } = state;
   const volatility = VOLATILITY_BY_PHASE[phase];
   
+  // Handle special event types that modify volatility
+  let volatilityMod = 1.0;
+  if (activeEvent === 'calm_before_storm') {
+    volatilityMod = 0.15; // Very calm
+  } else if (activeEvent === 'volatility_storm') {
+    volatilityMod = EVENT_MAGNITUDES[activeEvent].min + Math.random() * (EVENT_MAGNITUDES[activeEvent].max - EVENT_MAGNITUDES[activeEvent].min);
+  } else if (activeEvent === 'price_freeze') {
+    return 0; // No price movement during freeze
+  } else if (activeEvent === 'golden_hour') {
+    volatilityMod = 1.5; // More movement = more gains potential
+  }
+  
   // 1. Base random walk
-  const randomComponent = (Math.random() - 0.5) * 2 * volatility.base * Math.sqrt(deltaSeconds);
+  const randomComponent = (Math.random() - 0.5) * 2 * volatility.base * volatilityMod * Math.sqrt(deltaSeconds);
   
   // 2. Momentum component
   const momentumComponent = momentum * volatility.base * 2 * deltaSeconds;
   
-  // 3. Event component
+  // 3. Event component for market-moving events
   let eventComponent = 0;
-  if (activeEvent !== 'none') {
+  const volatilityOnlyEvents: ExtremeEvent[] = ['calm_before_storm', 'volatility_storm', 'price_freeze', 'phase_accelerator', 'phase_skip', 'momentum_flip'];
+  
+  if (activeEvent !== 'none' && !volatilityOnlyEvents.includes(activeEvent)) {
     const magnitude = randomInRange(
       EVENT_MAGNITUDES[activeEvent].min,
       EVENT_MAGNITUDES[activeEvent].max
     );
-    const direction = getEventDirection(activeEvent);
-    eventComponent = (magnitude / (state.eventDuration / 1000)) * eventIntensity * direction * deltaSeconds;
+    let direction = getEventDirection(activeEvent);
+    
+    // Dead cat bounce: starts positive, then reverses at 60% through
+    if (activeEvent === 'dead_cat_bounce') {
+      const elapsed = Date.now() - eventStartTime;
+      const progress = elapsed / eventDuration;
+      if (progress > 0.6) {
+        direction = -1.5; // Crash harder than the bounce
+      }
+    }
+    
+    // Double or nothing: instant resolution at peak intensity
+    if (activeEvent === 'double_or_nothing' && eventIntensity > 0.8) {
+      const win = Math.random() > 0.5;
+      eventComponent = win ? 1.0 : -0.5; // +100% or -50%
+    } else {
+      eventComponent = (magnitude / (eventDuration / 1000)) * eventIntensity * direction * deltaSeconds;
+    }
+  }
+  
+  // Calm before storm: explosion at the very end
+  if (activeEvent === 'calm_before_storm') {
+    const elapsed = Date.now() - eventStartTime;
+    const progress = elapsed / eventDuration;
+    if (progress > 0.9) {
+      const explosionDir = Math.random() > 0.5 ? 1 : -1;
+      eventComponent = explosionDir * (0.3 + Math.random() * 0.4) * eventIntensity;
+    }
   }
   
   // 4. Mean reversion (very weak, only at extremes)
@@ -387,7 +563,7 @@ function calculatePriceChange(state: MarketState, deltaSeconds: number): number 
   // 5. Volatility spike (5% chance per tick)
   let volatilitySpike = 0;
   if (Math.random() < 0.05) {
-    volatilitySpike = (Math.random() - 0.5) * volatility.max;
+    volatilitySpike = (Math.random() - 0.5) * volatility.max * volatilityMod;
   }
   
   return randomComponent + momentumComponent + eventComponent + meanReversionComponent + volatilitySpike;
