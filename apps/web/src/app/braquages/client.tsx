@@ -45,17 +45,33 @@ interface ActiveBounty {
   expiresAt: Date;
 }
 
-interface RobberyClientProps {
-  userId: string;
+interface InitialData {
+  targets: RobberyTarget[];
+  canRob: boolean;
+  cooldownEnds?: number;
+  history: RobberyHistoryItem[];
+  bounties: ActiveBounty[];
+  antibankInfo: {
+    canRob: boolean;
+    balance: number;
+    maxSteal: number;
+    riskPercent: number;
+    successChance: number;
+  } | null;
+  heistProgress: HeistProgress | null;
 }
 
-export function RobberyClient({ userId }: RobberyClientProps) {
-  const [targets, setTargets] = useState<RobberyTarget[]>([]);
-  const [history, setHistory] = useState<RobberyHistoryItem[]>([]);
-  const [bounties, setBounties] = useState<ActiveBounty[]>([]);
-  const [canRob, setCanRob] = useState(true);
-  const [cooldownEnds, setCooldownEnds] = useState<number | undefined>();
-  const [isLoading, setIsLoading] = useState(true);
+interface RobberyClientProps {
+  userId: string;
+  initialData: InitialData;
+}
+
+export function RobberyClient({ userId, initialData }: RobberyClientProps) {
+  const [targets, setTargets] = useState<RobberyTarget[]>(initialData.targets);
+  const [history, setHistory] = useState<RobberyHistoryItem[]>(initialData.history);
+  const [bounties, setBounties] = useState<ActiveBounty[]>(initialData.bounties);
+  const [canRob, setCanRob] = useState(initialData.canRob);
+  const [cooldownEnds, setCooldownEnds] = useState<number | undefined>(initialData.cooldownEnds);
   const [isRobbing, setIsRobbing] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<{
     success: boolean;
@@ -73,8 +89,8 @@ export function RobberyClient({ userId }: RobberyClientProps) {
   const [isCreatingBounty, setIsCreatingBounty] = useState(false);
 
   // Heist Quest State
-  const [heistProgress, setHeistProgress] = useState<HeistProgress | null>(null);
-  const [expandedStage, setExpandedStage] = useState<number | null>(null);
+  const [heistProgress, setHeistProgress] = useState<HeistProgress | null>(initialData.heistProgress);
+  const [expandedStage, setExpandedStage] = useState<number | null>(initialData.heistProgress?.currentStage ?? null);
 
   // ANTIBANK CORP state
   const [antibankInfo, setAntibankInfo] = useState<{
@@ -83,7 +99,7 @@ export function RobberyClient({ userId }: RobberyClientProps) {
     maxSteal: number;
     riskPercent: number;
     successChance: number;
-  } | null>(null);
+  } | null>(initialData.antibankInfo);
   const [isRobbingAntibank, setIsRobbingAntibank] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -114,13 +130,7 @@ export function RobberyClient({ userId }: RobberyClientProps) {
     if (heistRes) {
       setExpandedStage(heistRes.currentStage);
     }
-    
-    setIsLoading(false);
   }, []);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
 
   // Cooldown countdown avec re-render chaque seconde
   const [cooldownDisplay, setCooldownDisplay] = useState<string>("");
@@ -234,14 +244,6 @@ export function RobberyClient({ userId }: RobberyClientProps) {
     if (minutes > 0) return `il y a ${minutes}m`;
     return "a l'instant";
   };
-
-  if (isLoading) {
-    return (
-      <div className="max-w-[600px] w-full flex flex-col gap-8 animate-fade-in">
-        <div className="text-center text-[var(--text-muted)]">chargement...</div>
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-[600px] w-full flex flex-col gap-8 animate-fade-in">
