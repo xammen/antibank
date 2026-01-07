@@ -78,7 +78,7 @@ export async function getRobberyTargets(): Promise<{ success: boolean; targets?:
       AND u.balance >= ${myBalance}
       AND u."isBanned" = false
     GROUP BY u.id
-    ORDER BY u.balance DESC
+    ORDER BY u.balance::numeric DESC
     LIMIT 20
   `;
 

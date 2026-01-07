@@ -542,12 +542,12 @@ export async function getActiveRevolution(): Promise<{
     };
   }
 
-  // Pas de revolution active - verifier si on peut en lancer une
+// Pas de revolution active - verifier si on peut en lancer une
   // Calculer la mediane et trouver le plus riche
   const balances = await prisma.$queryRaw<Array<{ balance: string }>>`
     SELECT balance::text FROM "User"
     WHERE "isBanned" = false
-    ORDER BY balance ASC
+    ORDER BY balance::numeric ASC
   `;
 
   if (balances.length < 3) {
@@ -562,7 +562,7 @@ export async function getActiveRevolution(): Promise<{
   const richestUser = await prisma.$queryRaw<[{ id: string; discordUsername: string; balance: string }]>`
     SELECT id, "discordUsername", balance::text FROM "User"
     WHERE "isBanned" = false
-    ORDER BY balance DESC
+    ORDER BY balance::numeric DESC
     LIMIT 1
   `;
 
@@ -620,9 +620,9 @@ export async function startRevolution(): Promise<{ success: boolean; error?: str
     return { success: false, error: `il te faut ${REVOLUTION_COST} pour lancer une revolution` };
   }
 
-  // Calculer mediane et trouver le plus riche
+// Calculer mediane et trouver le plus riche
   const balances = await prisma.$queryRaw<Array<{ balance: string }>>`
-    SELECT balance::text FROM "User" WHERE "isBanned" = false ORDER BY balance ASC
+    SELECT balance::text FROM "User" WHERE "isBanned" = false ORDER BY balance::numeric ASC
   `;
 
   const balanceValues = balances.map(b => parseFloat(b.balance));
@@ -635,7 +635,7 @@ export async function startRevolution(): Promise<{ success: boolean; error?: str
 
   const richestUser = await prisma.$queryRaw<[{ id: string; discordUsername: string; balance: string }]>`
     SELECT id, "discordUsername", balance::text FROM "User"
-    WHERE "isBanned" = false ORDER BY balance DESC LIMIT 1
+    WHERE "isBanned" = false ORDER BY balance::numeric DESC LIMIT 1
   `;
 
   if (richestUser[0].id === session.user.id) {

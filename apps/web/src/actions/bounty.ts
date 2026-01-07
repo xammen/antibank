@@ -326,7 +326,7 @@ export async function getBountyTargets(): Promise<{
     FROM "User"
     WHERE id != ${session.user.id}
       AND "isBanned" = false
-    ORDER BY balance DESC
+    ORDER BY balance::numeric DESC
     LIMIT 50
   `;
 

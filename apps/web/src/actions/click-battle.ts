@@ -718,7 +718,7 @@ export async function getClickBattleTargets(): Promise<{
     WHERE id != ${session.user.id}
       AND "isBanned" = false
       AND balance >= ${MIN_BET}
-    ORDER BY balance DESC
+    ORDER BY balance::numeric DESC
     LIMIT 50
   `;
 
