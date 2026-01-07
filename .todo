@@ -19,4 +19,5 @@
 - [x] Integrate tracking in robbery.ts (robbery success + survived)
 - [x] Build quest UI in braquages/client.tsx
 - [x] Add bot voice minute tracking
+- [x] Add shop items section with buy functionality
 - [x] Push to remote
