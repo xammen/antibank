@@ -399,6 +399,71 @@ export async function getWarnTargets(): Promise<{
 }
 
 // ============================================
+// WARN HISTORY
+// ============================================
+
+interface WarnHistoryItem {
+  id: string;
+  accuserName: string;
+  accusedName: string;
+  reason: string;
+  amount: number;
+  status: string;
+  guiltyVotes: number;
+  innocentVotes: number;
+  resolvedAt: Date;
+}
+
+export async function getWarnHistory(limit: number = 20): Promise<{ 
+  success: boolean; 
+  history?: WarnHistoryItem[];
+  error?: string 
+}> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "non connecte" };
+  }
+
+  const history = await prisma.$queryRaw<Array<{
+    id: string;
+    accuserName: string;
+    accusedName: string;
+    reason: string;
+    amount: string;
+    status: string;
+    guiltyVotes: number;
+    innocentVotes: number;
+    resolvedAt: Date;
+  }>>`
+    SELECT w.id, accuser."discordUsername" as "accuserName",
+           accused."discordUsername" as "accusedName",
+           w.reason, w.amount::text, w.status,
+           w."guiltyVotes", w."innocentVotes", w."resolvedAt"
+    FROM "WarnVote" w
+    JOIN "User" accuser ON w."accuserId" = accuser.id
+    JOIN "User" accused ON w."accusedId" = accused.id
+    WHERE w.status IN ('guilty', 'innocent', 'expired')
+    ORDER BY w."resolvedAt" DESC
+    LIMIT ${limit}
+  `;
+
+  return {
+    success: true,
+    history: history.map(h => ({
+      id: h.id,
+      accuserName: h.accuserName,
+      accusedName: h.accusedName,
+      reason: h.reason,
+      amount: parseFloat(h.amount),
+      status: h.status,
+      guiltyVotes: h.guiltyVotes,
+      innocentVotes: h.innocentVotes,
+      resolvedAt: h.resolvedAt
+    }))
+  };
+}
+
+// ============================================
 // REVOLUTION
 // ============================================
 

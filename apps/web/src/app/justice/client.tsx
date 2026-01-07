@@ -12,6 +12,7 @@ import {
   voteOnRevolution,
   skipWarnTimer,
   skipRevolutionTimer,
+  getWarnHistory,
 } from "@/actions/justice";
 
 interface ActiveWarn {
@@ -40,12 +41,25 @@ interface RevolutionInfo {
   myVote?: string;
 }
 
+interface WarnHistoryItem {
+  id: string;
+  accuserName: string;
+  accusedName: string;
+  reason: string;
+  amount: number;
+  status: string;
+  guiltyVotes: number;
+  innocentVotes: number;
+  resolvedAt: Date;
+}
+
 interface JusticeClientProps {
   userId: string;
 }
 
 export function JusticeClient({ userId }: JusticeClientProps) {
   const [warns, setWarns] = useState<ActiveWarn[]>([]);
+  const [warnHistory, setWarnHistory] = useState<WarnHistoryItem[]>([]);
   const [revolution, setRevolution] = useState<RevolutionInfo | null>(null);
   const [canStartRevolution, setCanStartRevolution] = useState(false);
   const [richestInfo, setRichestInfo] = useState<{ name: string; balance: number; median: number } | null>(null);
@@ -62,9 +76,10 @@ export function JusticeClient({ userId }: JusticeClientProps) {
   const [isCreatingWarn, setIsCreatingWarn] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [warnsRes, revRes] = await Promise.all([
+    const [warnsRes, revRes, historyRes] = await Promise.all([
       getActiveWarns(),
       getActiveRevolution(),
+      getWarnHistory(20),
     ]);
 
     if (warnsRes.success && warnsRes.warns) {
@@ -81,6 +96,10 @@ export function JusticeClient({ userId }: JusticeClientProps) {
           median: revRes.medianBalance || 0
         });
       }
+    }
+
+    if (historyRes.success && historyRes.history) {
+      setWarnHistory(historyRes.history);
     }
 
     setIsLoading(false);
@@ -449,6 +468,63 @@ export function JusticeClient({ userId }: JusticeClientProps) {
                       tu ne peux pas voter sur ce warn
                     </p>
                   )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Warn History */}
+      <section>
+        <h2 className="text-[0.75rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">
+          historique des amendes
+        </h2>
+
+        {warnHistory.length === 0 ? (
+          <p className="text-[var(--text-muted)] text-sm text-center py-4">
+            aucune amende
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {warnHistory.map((item) => {
+              const statusColor = item.status === "guilty" 
+                ? "text-red-400" 
+                : item.status === "innocent" 
+                  ? "text-green-400" 
+                  : "text-[var(--text-muted)]";
+              const statusLabel = item.status === "guilty" 
+                ? "coupable" 
+                : item.status === "innocent" 
+                  ? "innocent" 
+                  : "expire";
+
+              return (
+                <div
+                  key={item.id}
+                  className="p-3 border border-[var(--line)] bg-[rgba(255,255,255,0.01)] text-sm"
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-[var(--text-muted)]">{item.accuserName}</span>
+                      {" vs "}
+                      <span className={item.status === "guilty" ? "text-red-400" : ""}>{item.accusedName}</span>
+                    </div>
+                    <span className={statusColor}>{statusLabel}</span>
+                  </div>
+                  <p className="text-[0.7rem] text-[var(--text-muted)] mt-1">
+                    &quot;{item.reason}&quot; — {item.amount.toFixed(2)}€
+                  </p>
+                  <p className="text-[0.65rem] text-[var(--text-muted)] mt-1">
+                    {item.guiltyVotes} coupable / {item.innocentVotes} innocent
+                    {" • "}
+                    {new Date(item.resolvedAt).toLocaleDateString("fr-FR", { 
+                      day: "numeric", 
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit"
+                    })}
+                  </p>
                 </div>
               );
             })}
