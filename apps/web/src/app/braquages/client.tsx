@@ -312,12 +312,12 @@ export function RobberyClient({ userId }: RobberyClientProps) {
               <select
                 value={selectedBountyTarget}
                 onChange={(e) => setSelectedBountyTarget(e.target.value)}
-                className="bg-transparent border border-[var(--line)] p-2 text-sm"
+                className="bg-[#1a1a1a] border border-[var(--line)] p-2 text-sm text-[var(--text)] rounded"
               >
-                <option value="">choisir une cible</option>
+                <option value="" className="bg-[#1a1a1a] text-[var(--text)]">choisir une cible</option>
                 {bountyTargets.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.discordUsername} ({t.balance.toFixed(2)})
+                  <option key={t.id} value={t.id} className="bg-[#1a1a1a] text-[var(--text)]">
+                    {t.discordUsername} ({t.balance.toFixed(2)}€)
                   </option>
                 ))}
               </select>

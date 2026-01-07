@@ -270,12 +270,12 @@ export function JusticeClient({ userId }: JusticeClientProps) {
               <select
                 value={selectedTarget}
                 onChange={(e) => setSelectedTarget(e.target.value)}
-                className="bg-transparent border border-[var(--line)] p-2 text-sm"
+                className="bg-[#1a1a1a] border border-[var(--line)] p-2 text-sm text-[var(--text)] rounded"
               >
-                <option value="">choisir l&apos;accuse</option>
+                <option value="" className="bg-[#1a1a1a] text-[var(--text)]">choisir l&apos;accuse</option>
                 {warnTargets.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.discordUsername} ({t.balance.toFixed(2)})
+                  <option key={t.id} value={t.id} className="bg-[#1a1a1a] text-[var(--text)]">
+                    {t.discordUsername} ({t.balance.toFixed(2)}€)
                   </option>
                 ))}
               </select>
