@@ -187,19 +187,24 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
     setResult(null);
     setShowAnimation(true);
 
-    const res = await playDiceVsBot(amount);
+    // Lancer le serveur en parallèle avec l'animation
+    const serverPromise = playDiceVsBot(amount);
+    
+    // Attendre au moins 1.5s pour l'animation (mais pas bloquer sur serveur)
+    const [res] = await Promise.all([
+      serverPromise,
+      new Promise(r => setTimeout(r, 1500))
+    ]);
+    
     setResult(res);
-    
-    await new Promise((r) => setTimeout(r, 1800));
-    
     setShowAnimation(false);
     setIsPlaying(false);
     
-    if (res.success) {
-      refreshBalance();
-      // Reload history
-      const h = await getDiceHistory(15);
-      setHistory(h as HistoryGame[]);
+    if (res.success && res.profit !== undefined) {
+      // Update balance depuis le profit retourné (pas de fetch)
+      refreshBalance(); // TODO: utiliser le profit directement quand l'API le retourne
+      // Reload history en background (fire and forget)
+      getDiceHistory(15).then(h => setHistory(h as HistoryGame[]));
     }
   };
 

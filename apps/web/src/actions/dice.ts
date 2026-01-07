@@ -2,8 +2,7 @@
 
 import { auth } from "@/lib/auth";
 import { prisma, Prisma } from "@antibank/db";
-import { rollDice, determineWinner, calculateDiceWinnings, DICE_CONFIG } from "@/lib/dice";
-import { revalidatePath } from "next/cache";
+import { determineWinner, calculateDiceWinnings, DICE_CONFIG } from "@/lib/dice";
 import { addToAntibank } from "@/lib/antibank-corp";
 import { trackHeistCasinoWin, trackHeistCasinoLoss } from "./heist";
 
@@ -78,7 +77,6 @@ export async function createDiceChallenge(
       },
     });
 
-    revalidatePath("/casino/dice");
     return { success: true, gameId: game.id };
   } catch (error) {
     console.error("Create dice challenge error:", error);
@@ -204,7 +202,6 @@ export async function acceptDiceChallenge(
     // Calculer le profit pour le joueur actuel (player2)
     const myProfit = calculateDiceWinnings(amount, result, false) - amount;
 
-    revalidatePath("/casino/dice");
     return {
       success: true,
       player1Roll,
@@ -250,7 +247,6 @@ export async function cancelDiceChallenge(gameId: string): Promise<{ success: bo
     data: { status: "cancelled" },
   });
 
-  revalidatePath("/casino/dice");
   return { success: true };
 }
 
@@ -710,8 +706,6 @@ export async function playDiceVsBot(amount: number): Promise<PlayVsBotResult> {
     } else if (result === "player2") {
       trackHeistCasinoLoss(session.user.id).catch(() => {});
     }
-
-    revalidatePath("/casino/dice");
 
     return {
       success: true,

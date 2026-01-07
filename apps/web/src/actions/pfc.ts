@@ -9,7 +9,7 @@ import {
   PFC_CONFIG,
   type PFCChoice 
 } from "@/lib/pfc";
-import { revalidatePath } from "next/cache";
+
 import { addToAntibank } from "@/lib/antibank-corp";
 import { trackHeistCasinoWin, trackHeistCasinoLoss } from "./heist";
 
@@ -73,7 +73,7 @@ export async function createPFCChallenge(
       },
     });
 
-    revalidatePath("/casino/pfc");
+    
     return { success: true, gameId: game.id };
   } catch (error) {
     console.error("Create PFC challenge error:", error);
@@ -127,7 +127,7 @@ export async function acceptPFCChallenge(gameId: string): Promise<{ success: boo
     }),
   ]);
 
-  revalidatePath("/casino/pfc");
+  
   return { success: true };
 }
 
@@ -260,7 +260,7 @@ export async function makePFCChoice(
     ? calculatePFCWinnings(amount, result, true, penalty) - amount
     : calculatePFCWinnings(amount, result, false, penalty) - amount;
 
-  revalidatePath("/casino/pfc");
+  
   return {
     success: true,
     player1Choice: player1Choice as PFCChoice,
@@ -356,7 +356,7 @@ export async function playPFCVsBot(
       trackHeistCasinoLoss(session.user.id).catch(() => {});
     }
 
-    revalidatePath("/casino/pfc");
+    
 
     return {
       success: true,

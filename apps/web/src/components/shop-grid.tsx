@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import {
   UPGRADES,
   UPGRADE_CATEGORIES,
@@ -23,78 +23,68 @@ interface ShopGridProps {
 export function ShopGrid({ userUpgrades, userInventory, userBalance }: ShopGridProps) {
   const [upgrades, setUpgrades] = useState(userUpgrades);
   const [inventory, setInventory] = useState(userInventory);
-  const [isPending, startTransition] = useTransition();
-  const [buyingId, setBuyingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const { balance, setBalance, refreshBalance } = useBalance(userBalance.toString());
+  const { balance, setBalance } = useBalance(userBalance.toString());
 
-  const handleBuy = async (upgradeId: string) => {
+  const handleBuy = (upgradeId: string) => {
+    const upgrade = UPGRADES[upgradeId];
+    const currentLevel = upgrades[upgradeId] || 0;
+    const price = getPriceForLevel(upgrade.basePrice, currentLevel);
+    
+    // OPTIMISTIC: Update immédiatement
     setError(null);
-    setSuccess(null);
-    setBuyingId(upgradeId);
+    setSuccess(`${upgrade.icon} ${upgrade.name} niveau ${currentLevel + 1}!`);
+    setUpgrades((prev) => ({ ...prev, [upgradeId]: currentLevel + 1 }));
+    setBalance((parseFloat(balance) - price).toString());
+    setTimeout(() => setSuccess(null), 2000);
 
-    startTransition(async () => {
-      const result = await buyUpgrade(upgradeId);
-
-      if (result.success) {
-        // Update local state
-        setUpgrades((prev) => ({
-          ...prev,
-          [upgradeId]: result.newLevel || 1,
-        }));
-
-        if (result.newBalance !== undefined) {
-          setBalance(result.newBalance.toString());
-        }
-
-        const upgrade = UPGRADES[upgradeId];
-        setSuccess(`${upgrade.icon} ${upgrade.name} niveau ${result.newLevel}!`);
-        
-        // Clear success après 2s
-        setTimeout(() => setSuccess(null), 2000);
-      } else {
+    // Fire and forget - serveur confirme en background
+    buyUpgrade(upgradeId).then(result => {
+      if (!result.success) {
+        // Rollback
         setError(result.error || "Erreur");
+        setSuccess(null);
+        setUpgrades((prev) => ({ ...prev, [upgradeId]: currentLevel }));
+        setBalance(userBalance.toString());
         setTimeout(() => setError(null), 3000);
+      } else if (result.newBalance !== undefined) {
+        // Sync avec le vrai solde serveur
+        setBalance(result.newBalance.toString());
       }
-
-      setBuyingId(null);
     });
   };
 
-  const handleBuyItem = async (itemId: string) => {
+  const handleBuyItem = (itemId: string) => {
+    const item = ITEMS[itemId];
+    
+    // OPTIMISTIC: Update immédiatement
     setError(null);
-    setSuccess(null);
-    setBuyingId(itemId);
-
-    startTransition(async () => {
-      const result = await buyItem(itemId);
-
-      if (result.success) {
-        // Update local inventory
-        setInventory((prev) => {
-          const existing = prev.find((i) => i.itemId === itemId);
-          if (existing) {
-            return prev.map((i) =>
-              i.itemId === itemId ? { ...i, charges: result.charges || i.charges } : i
-            );
-          }
-          return [...prev, { itemId, charges: result.charges || 0 }];
-        });
-
-        if (result.newBalance !== undefined) {
-          setBalance(result.newBalance.toString());
-        }
-
-        const item = ITEMS[itemId];
-        setSuccess(`${item.icon} ${item.name} achete!`);
-        setTimeout(() => setSuccess(null), 2000);
-      } else {
-        setError(result.error || "erreur");
-        setTimeout(() => setError(null), 3000);
+    setSuccess(`${item.icon} ${item.name} achete!`);
+    setInventory((prev) => {
+      const existing = prev.find((i) => i.itemId === itemId);
+      if (existing) {
+        return prev.map((i) =>
+          i.itemId === itemId ? { ...i, charges: i.charges + item.charges } : i
+        );
       }
+      return [...prev, { itemId, charges: item.charges }];
+    });
+    setBalance((parseFloat(balance) - item.price).toString());
+    setTimeout(() => setSuccess(null), 2000);
 
-      setBuyingId(null);
+    // Fire and forget
+    buyItem(itemId).then(result => {
+      if (!result.success) {
+        // Rollback
+        setError(result.error || "erreur");
+        setSuccess(null);
+        setInventory(userInventory); // Full rollback
+        setBalance(userBalance.toString());
+        setTimeout(() => setError(null), 3000);
+      } else if (result.newBalance !== undefined) {
+        setBalance(result.newBalance.toString());
+      }
     });
   };
 
@@ -163,7 +153,6 @@ export function ShopGrid({ userUpgrades, userInventory, userBalance }: ShopGridP
                 ? 0
                 : getPriceForLevel(upgrade.basePrice, currentLevel);
               const canAfford = parseFloat(balance) >= price;
-              const isBuying = buyingId === upgrade.id;
 
               return (
                 <div
@@ -211,19 +200,18 @@ export function ShopGrid({ userUpgrades, userInventory, userBalance }: ShopGridP
                     ) : (
                       <button
                         onClick={() => handleBuy(upgrade.id)}
-                        disabled={!canAfford || isPending}
+                        disabled={!canAfford}
                         className={`
                           px-3 py-1.5 text-[0.75rem] 
-                          border transition-all duration-200
+                          border transition-all duration-200 active:scale-95
                           ${
-                            canAfford && !isPending
+                            canAfford
                               ? "border-[var(--text-muted)] hover:border-[var(--text)] hover:bg-[rgba(255,255,255,0.05)] cursor-pointer"
                               : "border-[var(--line)] text-[var(--text-muted)] cursor-not-allowed opacity-50"
                           }
-                          ${isBuying ? "animate-pulse" : ""}
                         `}
                       >
-                        {isBuying ? "..." : `${price}€`}
+                        {price}€
                       </button>
                     )}
                   </div>
@@ -261,7 +249,6 @@ export function ShopGrid({ userUpgrades, userInventory, userBalance }: ShopGridP
             {category.items.map((item) => {
               const currentCharges = getItemCharges(item.id);
               const canAfford = parseFloat(balance) >= item.price;
-              const isBuying = buyingId === item.id;
 
               return (
                 <div
@@ -302,19 +289,18 @@ export function ShopGrid({ userUpgrades, userInventory, userBalance }: ShopGridP
                     {/* Buy button */}
                     <button
                       onClick={() => handleBuyItem(item.id)}
-                      disabled={!canAfford || isPending}
+                      disabled={!canAfford}
                       className={`
                         px-3 py-1.5 text-[0.75rem] 
-                        border transition-all duration-200
+                        border transition-all duration-200 active:scale-95
                         ${
-                          canAfford && !isPending
+                          canAfford
                             ? "border-[var(--text-muted)] hover:border-[var(--text)] hover:bg-[rgba(255,255,255,0.05)] cursor-pointer"
                             : "border-[var(--line)] text-[var(--text-muted)] cursor-not-allowed opacity-50"
                         }
-                        ${isBuying ? "animate-pulse" : ""}
                       `}
                     >
-                      {isBuying ? "..." : `${item.price}€`}
+                      {item.price}€
                     </button>
                   </div>
                 </div>

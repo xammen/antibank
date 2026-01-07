@@ -3,7 +3,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@antibank/db";
 import { UPGRADES, getPriceForLevel } from "@/lib/upgrades";
-import { revalidatePath } from "next/cache";
 
 export interface BuyResult {
   success: boolean;
@@ -98,8 +97,7 @@ export async function buyUpgrade(upgradeId: string): Promise<BuyResult> {
       };
     });
 
-    revalidatePath("/shop");
-    revalidatePath("/dashboard");
+    // Pas de revalidatePath - l'UI se met à jour via l'état local optimiste
 
     return {
       success: true,

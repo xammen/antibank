@@ -170,9 +170,14 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
     setPlayerChoice(choice);
     setShowAnimation(true);
 
-    const res = await playPFCVsBot(choice, amount);
+    // Lancer le serveur en parallèle avec l'animation
+    const serverPromise = playPFCVsBot(choice, amount);
     
-    await new Promise((r) => setTimeout(r, 1200));
+    // Attendre au moins 1s pour l'animation
+    const [res] = await Promise.all([
+      serverPromise,
+      new Promise(r => setTimeout(r, 1000))
+    ]);
     
     setResult(res);
     setShowAnimation(false);
@@ -180,9 +185,8 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
 
     if (res.success) {
       refreshBalance();
-      // Reload history
-      const h = await getPFCHistory(15);
-      setHistory(h as HistoryGame[]);
+      // Reload history en background
+      getPFCHistory(15).then(h => setHistory(h as HistoryGame[]));
     }
   };
 
