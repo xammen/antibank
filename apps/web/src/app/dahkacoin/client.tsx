@@ -487,20 +487,35 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
           </div>
           
           {showPhaseInfo && (
-            <div className="absolute left-0 right-0 top-8 mx-2 p-3 bg-[#151515] border border-[var(--line)] text-[0.6rem] text-[var(--text-muted)] z-10 space-y-1">
-              <p className="text-[var(--text)] mb-2">le marche passe par des phases:</p>
-              <p><span className="text-[var(--text)]">accumulation</span> - calme, bon moment pour acheter</p>
-              <p><span className="text-green-400">hausse</span> - ca commence a monter</p>
-              <p><span className="text-green-500">euphorie</span> - moon! mais attention au crash</p>
-              <p><span className="text-orange-400">distribution</span> - les gros vendent, instable</p>
-              <p><span className="text-red-400">baisse</span> - ca descend</p>
-              <p><span className="text-red-500">capitulation</span> - panique! mais opportunite</p>
-              <p><span className="text-blue-400">recuperation</span> - le fond est passe</p>
+            <div className="absolute left-0 right-0 top-8 mx-2 p-3 bg-[#151515] border border-[var(--line)] text-[0.6rem] text-[var(--text-muted)] z-10 space-y-2">
+              <p className="text-[var(--text)] mb-2">le marché passe par des cycles. les montées sont courtes, les chutes durent longtemps.</p>
+              
+              <p><span className="text-[var(--text)]">accumulation</span> <span className="text-[var(--text-muted)]">(1-3min)</span></p>
+              <p className="ml-2">→ période calme. les malins achètent discrètement.</p>
+              
+              <p><span className="text-green-400">hausse</span> <span className="text-[var(--text-muted)]">(45s-1.5min)</span></p>
+              <p className="ml-2">→ ça commence à monter. le momentum se construit.</p>
+              
+              <p><span className="text-green-500">euphorie</span> <span className="text-[var(--text-muted)]">(20-45s)</span></p>
+              <p className="ml-2">→ TO THE MOON! 🚀 mais ça dure jamais. vends vite ou pleure.</p>
+              
+              <p><span className="text-orange-400">distribution</span> <span className="text-[var(--text-muted)]">(1-2min)</span></p>
+              <p className="ml-2">→ les baleines vendent en douce. ça devient instable.</p>
+              
+              <p><span className="text-red-400">baisse</span> <span className="text-[var(--text-muted)]">(1.5-2.5min)</span></p>
+              <p className="ml-2">→ lente descente. tout le monde espère que ça remonte.</p>
+              
+              <p><span className="text-red-500">capitulation</span> <span className="text-[var(--text-muted)]">(2-4min)</span></p>
+              <p className="ml-2">→ PANIQUE TOTALE. ça dure longtemps. les mains de diamant achètent ici.</p>
+              
+              <p><span className="text-blue-400">récupération</span> <span className="text-[var(--text-muted)]">(1.5-3min)</span></p>
+              <p className="ml-2">→ le pire est passé. reconstruction lente.</p>
+              
               <button 
                 onClick={() => setShowPhaseInfo(false)}
-                className="mt-2 text-[var(--text)] underline"
+                className="mt-3 text-[var(--text)] underline"
               >
-                fermer
+                compris
               </button>
             </div>
           )}
