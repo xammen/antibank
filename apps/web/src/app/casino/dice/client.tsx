@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { playDiceVsBot, type PlayVsBotResult, getAvailablePlayers, getPendingDiceChallenges, createDiceChallenge, acceptDiceChallenge, getRecentDiceResults } from "@/actions/dice";
+import { playDiceVsBot, type PlayVsBotResult, getAvailablePlayers, getPendingDiceChallenges, createDiceChallenge, acceptDiceChallenge, getRecentDiceResults, getDiceHistory } from "@/actions/dice";
 import { Balance } from "@/components/balance";
 import { BalanceProvider, useBalance } from "@/hooks/use-balance";
 
@@ -77,6 +77,18 @@ interface Challenge {
   player2?: { id: string; discordUsername: string } | null;
 }
 
+interface HistoryGame {
+  id: string;
+  myRoll: number | null;
+  theirRoll: number | null;
+  opponentName: string;
+  won: boolean;
+  tie: boolean;
+  profit: number;
+  amount: number;
+  completedAt: Date | null;
+}
+
 function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
   const [mode, setMode] = useState<GameMode>("bot");
   const [betAmount, setBetAmount] = useState("1");
@@ -91,6 +103,7 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
   const [pvpResult, setPvpResult] = useState<{ won: boolean; tie: boolean; myRoll: number; theirRoll: number; myDice: [number, number]; theirDice: [number, number]; profit: number } | null>(null);
   const [pvpAnimating, setPvpAnimating] = useState(false);
   const [seenResultIds, setSeenResultIds] = useState<Set<string>>(new Set());
+  const [history, setHistory] = useState<HistoryGame[]>([]);
 
   useEffect(() => {
     if (mode === "pvp") {
@@ -99,6 +112,17 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
       return () => clearInterval(interval);
     }
   }, [mode]);
+
+  // Load history on mount and refresh periodically
+  useEffect(() => {
+    const loadHistory = async () => {
+      const h = await getDiceHistory(15);
+      setHistory(h as HistoryGame[]);
+    };
+    loadHistory();
+    const interval = setInterval(loadHistory, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Poll for results when we have sent challenges (player1 waiting for player2 to accept)
   useEffect(() => {
@@ -127,6 +151,9 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
           setSeenResultIds(prev => new Set([...prev, result.id]));
           refreshBalance();
           loadPvpData();
+          // Reload history
+          const h = await getDiceHistory(15);
+          setHistory(h as HistoryGame[]);
           break;
         }
       }
@@ -163,6 +190,9 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
     
     if (res.success) {
       refreshBalance();
+      // Reload history
+      const h = await getDiceHistory(15);
+      setHistory(h as HistoryGame[]);
     }
   };
 
@@ -202,6 +232,9 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
       
       refreshBalance();
       loadPvpData();
+      // Reload history
+      const h = await getDiceHistory(15);
+      setHistory(h as HistoryGame[]);
     } else {
       setPvpAnimating(false);
     }
@@ -590,6 +623,41 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
               </div>
             )}
           </div>
+
+          {/* History */}
+          {history.length > 0 && (
+            <div className="border-t border-[var(--line)] max-h-48 overflow-y-auto">
+              <div className="p-3 border-b border-[var(--line)] sticky top-0 bg-[var(--bg)]">
+                <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)]">historique</p>
+              </div>
+              <div className="divide-y divide-[var(--line)]">
+                {history.map((game) => (
+                  <div 
+                    key={game.id} 
+                    className={`px-3 py-2 flex items-center justify-between ${
+                      game.won ? "bg-green-500/5" : game.tie ? "bg-yellow-500/5" : "bg-red-500/5"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-mono">{game.myRoll}</span>
+                      <span className="text-[var(--text-muted)] text-xs">vs</span>
+                      <span className="text-sm font-mono">{game.theirRoll}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-xs font-mono ${
+                        game.won ? "text-green-400" : game.tie ? "text-yellow-400" : "text-red-400"
+                      }`}>
+                        {game.profit > 0 ? "+" : ""}{game.profit.toFixed(2)}e
+                      </p>
+                      <p className="text-[0.55rem] text-[var(--text-muted)]">
+                        {game.opponentName?.toLowerCase()}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Rules */}
           <div className="p-4 border-t border-[var(--line)] text-[0.6rem] text-[var(--text-muted)] space-y-0.5">
