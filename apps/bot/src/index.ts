@@ -121,6 +121,9 @@ async function mineVocal() {
             },
           }),
         ]);
+        
+        // Track heist voice minutes (1 min per interval)
+        await trackHeistVoiceMinute(user.id);
       } catch (e) {
         // User pas en DB, ignore
       }
@@ -129,6 +132,27 @@ async function mineVocal() {
   
   // Update les sessions pour le site
   await updateVoiceSessions();
+}
+
+// Track 1 minute of voice time for heist progress
+async function trackHeistVoiceMinute(userId: string) {
+  try {
+    const progress = await prisma.heistProgress.findUnique({
+      where: { userId },
+      select: { stage1Complete: true },
+    });
+    
+    // Don't track if stage 1 already complete
+    if (progress?.stage1Complete) return;
+    
+    await prisma.heistProgress.upsert({
+      where: { userId },
+      create: { userId, voiceMinutes: 1 },
+      update: { voiceMinutes: { increment: 1 } },
+    });
+  } catch (e) {
+    // Ignore errors - heist tracking is optional
+  }
 }
 
 // === MINING PASSIF ===
