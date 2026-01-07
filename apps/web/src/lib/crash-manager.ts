@@ -61,8 +61,29 @@ class CrashGameManager {
       orderBy: { createdAt: "desc" }
     });
 
-    // Si pas de partie active, en créer une nouvelle
+    // Si pas de partie active, vérifier s'il y a une partie crashed récente
     if (!game) {
+      const crashedGame = await prisma.crashGame.findFirst({
+        where: { status: "crashed" },
+        orderBy: { crashedAt: "desc" },
+        include: {
+          bets: {
+            include: {
+              user: { select: { id: true, discordUsername: true } }
+            }
+          }
+        }
+      });
+
+      // Si la partie crashed est récente (< POST_CRASH_DELAY_MS), la retourner
+      if (crashedGame?.crashedAt) {
+        const timeSinceCrash = Date.now() - crashedGame.crashedAt.getTime();
+        if (timeSinceCrash < POST_CRASH_DELAY_MS) {
+          return crashedGame;
+        }
+      }
+
+      // Sinon créer une nouvelle partie
       game = await this.createNewGame();
     }
 
@@ -116,7 +137,7 @@ class CrashGameManager {
     
     let state: "waiting" | "running" | "crashed" = game.status as "waiting" | "running" | "crashed";
     let countdown = CRASH_CONFIG.COUNTDOWN_SECONDS;
-    let currentMultiplier = 1.0;
+    let currentMultiplier = 1.00;
     let startTime: number | null = null;
     
     if (game.status === "waiting") {
@@ -130,11 +151,13 @@ class CrashGameManager {
         await this.startGame(game.id);
         state = "running";
         startTime = now;
+        currentMultiplier = 1.00;
         countdown = 0;
       }
     } else if (game.status === "running") {
+      // Utiliser startedAt si disponible, sinon calculer depuis createdAt + countdown
       startTime = game.startedAt?.getTime() || (createdAt + COUNTDOWN_MS);
-      const runningElapsed = now - startTime;
+      const runningElapsed = Math.max(0, now - startTime);
       currentMultiplier = calculateMultiplier(runningElapsed);
       
       const crashPoint = Number(game.crashPoint);
@@ -157,9 +180,19 @@ class CrashGameManager {
         const timeSinceCrash = now - game.crashedAt.getTime();
         if (timeSinceCrash >= POST_CRASH_DELAY_MS) {
           // Créer nouvelle partie
-          await this.createNewGame();
-          // Re-fetch pour retourner le nouvel état
-          return this.getPublicState();
+          const newGame = await this.createNewGame();
+          // Retourner directement l'état de la nouvelle partie
+          return {
+            id: newGame.id,
+            state: "waiting",
+            currentMultiplier: 1.00,
+            countdown: CRASH_CONFIG.COUNTDOWN_SECONDS,
+            startTime: null,
+            players: [],
+            skipVotes: 0,
+            skipVotesNeeded: MIN_PLAYERS_FOR_SKIP,
+            history,
+          };
         }
       }
     }

@@ -36,11 +36,14 @@ export function generateCrashPoint(): number {
  * Le multiplicateur augmente de façon exponentielle
  */
 export function calculateMultiplier(elapsedMs: number): number {
+  // Toujours commencer à 1.00 minimum
+  if (elapsedMs <= 0) return 1.00;
+  
   // Croissance exponentielle: commence lent, accélère
   // x2 en ~5 secondes, x5 en ~10 secondes, x10 en ~15 secondes
   const growthRate = 0.00006; // Ajusté pour une bonne vitesse
   const multiplier = Math.pow(Math.E, growthRate * elapsedMs);
-  return Math.floor(multiplier * 100) / 100;
+  return Math.max(1.00, Math.floor(multiplier * 100) / 100);
 }
 
 /**
