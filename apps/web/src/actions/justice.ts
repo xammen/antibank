@@ -7,11 +7,9 @@ import { auth } from "@/lib/auth";
 const WARN_COST = 0.20; // Cout pour lancer un warn
 const WARN_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 const WARN_MIN_AMOUNT = 0.50;
-const WARN_MAX_AMOUNT = 50; // Plafond absolu
-const WARN_MAX_PERCENT = 30; // Max 30% du solde de l'accuse
+const WARN_MAX_PERCENT = 100; // Max 100% du solde de l'accuse (pas de limite)
 const WARN_MIN_ACCUSED_BALANCE = 2; // L'accuse doit avoir au moins 2 euros
 const WARN_QUORUM = 3; // Minimum 3 votants
-const WARN_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h entre warns
 
 const REVOLUTION_COST = 3; // Cout pour lancer une revolution
 const REVOLUTION_DURATION_MS = 30 * 60 * 1000; // 30 minutes
@@ -149,21 +147,10 @@ export async function createWarn(accusedId: string, reason: string, amount: numb
     return { success: false, error: `l'accuse doit avoir au moins ${WARN_MIN_ACCUSED_BALANCE}` };
   }
 
-  // Calculer le montant max
-  const maxAmount = Math.min(WARN_MAX_AMOUNT, accusedBalance * WARN_MAX_PERCENT / 100);
+  // Calculer le montant max (100% du solde de l'accusé)
+  const maxAmount = accusedBalance * WARN_MAX_PERCENT / 100;
   if (amount > maxAmount) {
-    return { success: false, error: `montant max: ${maxAmount.toFixed(2)}` };
-  }
-
-  // Verifier cooldown (1 warn par 24h par personne)
-  const recentWarn = await prisma.$queryRaw<[{ count: bigint }]>`
-    SELECT COUNT(*) as count FROM "WarnVote"
-    WHERE "accuserId" = ${session.user.id}
-    AND "createdAt" > NOW() - INTERVAL '24 hours'
-  `;
-
-  if (Number(recentWarn[0]?.count || 0) > 0) {
-    return { success: false, error: "tu peux lancer qu'un warn par 24h" };
+    return { success: false, error: `montant max: ${maxAmount.toFixed(2)}€` };
   }
 
   const now = new Date();
