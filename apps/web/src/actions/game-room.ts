@@ -39,7 +39,7 @@ export interface GameRoomPublic {
 
 // Constantes
 const ROOM_EXPIRE_MINUTES = 5;
-const COUNTDOWN_SECONDS = 15;
+const COUNTDOWN_SECONDS = 30; // 30s pour laisser le temps de cliquer "pret"
 const HOUSE_FEE = 0.05; // 5%
 
 // Génère un code de room privée (6 caractères)
@@ -538,29 +538,74 @@ export async function checkAndStartGame(
     return { success: false, error: "room introuvable" };
   }
 
+  // Si déjà fini ou en cours, retourner l'état actuel
+  if (room.status === "finished" || room.status === "playing") {
+    return { success: true, room: toPublicRoom(room) };
+  }
+
   // Vérifier que c'est le moment de démarrer
   if (room.status !== "countdown") {
     return { success: true, room: toPublicRoom(room) };
   }
 
-  if (!room.countdownEnd || new Date() < room.countdownEnd) {
+  // Permettre une marge de 2 secondes avant la fin du countdown
+  // pour compenser les latences réseau et décalages d'horloge
+  const now = new Date();
+  const countdownEnd = room.countdownEnd ? new Date(room.countdownEnd) : null;
+  
+  if (!countdownEnd) {
+    return { success: true, room: toPublicRoom(room) };
+  }
+  
+  const timeDiff = countdownEnd.getTime() - now.getTime();
+  
+  // Si le countdown n'est pas encore fini (avec 2s de marge), attendre
+  if (timeDiff > 2000) {
     return { success: true, room: toPublicRoom(room) };
   }
 
   // C'est l'heure ! Lancer le jeu
-  if (room.gameType === "dice") {
-    return playDiceGame(room);
-  } else if (room.gameType === "pfc") {
-    // PFC nécessite les choix des joueurs, on passe en "playing"
-    const updated = await prisma.gameRoom.update({
+  // Utiliser une transaction pour éviter les doubles démarrages
+  try {
+    if (room.gameType === "dice") {
+      return playDiceGame(room);
+    } else if (room.gameType === "pfc") {
+      // PFC nécessite les choix des joueurs, on passe en "playing"
+      // Vérifier qu'on n'a pas déjà démarré (race condition)
+      const updated = await prisma.gameRoom.updateMany({
+        where: { 
+          id: roomId,
+          status: "countdown" // Seulement si encore en countdown
+        },
+        data: {
+          status: "playing",
+          startedAt: new Date(),
+        },
+      });
+      
+      // Si aucune mise à jour, quelqu'un d'autre a déjà démarré
+      if (updated.count === 0) {
+        const currentRoom = await prisma.gameRoom.findUnique({
+          where: { id: roomId },
+          include: { players: true },
+        });
+        return { success: true, room: currentRoom ? toPublicRoom(currentRoom) : undefined };
+      }
+      
+      const finalRoom = await prisma.gameRoom.findUnique({
+        where: { id: roomId },
+        include: { players: true },
+      });
+      return { success: true, room: finalRoom ? toPublicRoom(finalRoom) : undefined };
+    }
+  } catch (error) {
+    console.error("Error starting game:", error);
+    // En cas d'erreur, retourner l'état actuel
+    const currentRoom = await prisma.gameRoom.findUnique({
       where: { id: roomId },
-      data: {
-        status: "playing",
-        startedAt: new Date(),
-      },
       include: { players: true },
     });
-    return { success: true, room: toPublicRoom(updated) };
+    return { success: true, room: currentRoom ? toPublicRoom(currentRoom) : undefined };
   }
 
   return { success: false, error: "type de jeu inconnu" };

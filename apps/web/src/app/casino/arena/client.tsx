@@ -79,11 +79,14 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
       if (res.success && res.room) {
         setCurrentRoom(res.room);
         
-        // Check if countdown ended and we need to start
+        // Check if countdown ended (or about to end) and we need to start
         if (res.room.status === "countdown" && res.room.countdownEnd) {
-          const now = new Date();
-          const end = new Date(res.room.countdownEnd);
-          if (now >= end) {
+          const now = Date.now();
+          const end = new Date(res.room.countdownEnd).getTime();
+          const timeLeft = end - now;
+          
+          // Déclencher le jeu si le countdown est fini ou presque fini (< 1s)
+          if (timeLeft <= 1000) {
             await checkAndStartGame(res.room.id);
           }
         }
@@ -95,7 +98,8 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
       }
     };
 
-    const interval = setInterval(poll, 1000);
+    // Poll plus rapidement (500ms) pour ne pas rater la fin du countdown
+    const interval = setInterval(poll, 500);
     return () => clearInterval(interval);
   }, [view, currentRoom, loadRooms]);
 
