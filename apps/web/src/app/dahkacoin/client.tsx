@@ -473,15 +473,15 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
 
       {/* Probabilities */}
       <div className="grid grid-cols-2 gap-3 relative">
-        {/* Phase Guide - positioned to the left */}
-        <div className="hidden xl:block absolute right-full mr-4 top-0 w-36 text-[0.5rem] text-[var(--text-muted)] space-y-1.5 opacity-60 hover:opacity-100 transition-opacity select-none pointer-events-auto">
-          <p><span className="text-[var(--text)]">accumulation</span> 1-3min · calme</p>
-          <p><span className="text-green-400">hausse</span> 45s-1.5min · monte</p>
-          <p><span className="text-green-500">euphorie</span> 20-45s · vendre vite</p>
-          <p><span className="text-orange-400">distribution</span> 1-2min · instable</p>
-          <p><span className="text-red-400">baisse</span> 1.5-2.5min · descente</p>
-          <p><span className="text-red-500">capitulation</span> 2-4min · opportunité</p>
-          <p><span className="text-blue-400">récupération</span> 1.5-3min · repart</p>
+        {/* Phase Guide - positioned to the left, spotlight effect */}
+        <div className="hidden xl:block absolute right-full mr-4 top-0 w-36 text-[0.5rem] space-y-1.5 select-none">
+          <p className="opacity-20 hover:opacity-100 transition-opacity duration-150"><span className="text-[var(--text)]">accumulation</span> <span className="text-[var(--text-muted)]">1-3min · calme</span></p>
+          <p className="opacity-20 hover:opacity-100 transition-opacity duration-150"><span className="text-green-400">hausse</span> <span className="text-[var(--text-muted)]">45s-1.5min · monte</span></p>
+          <p className="opacity-20 hover:opacity-100 transition-opacity duration-150"><span className="text-green-500">euphorie</span> <span className="text-[var(--text-muted)]">20-45s · vendre vite</span></p>
+          <p className="opacity-20 hover:opacity-100 transition-opacity duration-150"><span className="text-orange-400">distribution</span> <span className="text-[var(--text-muted)]">1-2min · instable</span></p>
+          <p className="opacity-20 hover:opacity-100 transition-opacity duration-150"><span className="text-red-400">baisse</span> <span className="text-[var(--text-muted)]">1.5-2.5min · descente</span></p>
+          <p className="opacity-20 hover:opacity-100 transition-opacity duration-150"><span className="text-red-500">capitulation</span> <span className="text-[var(--text-muted)]">2-4min · opportunité</span></p>
+          <p className="opacity-20 hover:opacity-100 transition-opacity duration-150"><span className="text-blue-400">récupération</span> <span className="text-[var(--text-muted)]">1.5-3min · repart</span></p>
         </div>
         
         {/* Next Phase Probabilities */}
