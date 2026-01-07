@@ -160,6 +160,7 @@ model DiceGame {
   // Rematch votes
   player1WantsRematch Boolean @default(false)
   player2WantsRematch Boolean @default(false)
+  rematchGameId       String?  // ID de la nouvelle partie créée par rematch
   
   expiresAt    DateTime // Expire après 5 min si pas accepté
   createdAt    DateTime @default(now())
@@ -253,6 +254,7 @@ model PFCGame {
   // Rematch votes
   player1WantsRematch Boolean @default(false)
   player2WantsRematch Boolean @default(false)
+  rematchGameId       String?  // ID de la nouvelle partie créée par rematch
   
   expiresAt    DateTime
   createdAt    DateTime @default(now())
@@ -438,39 +440,6 @@ model RevolutionBallot {
 }
 
 // ============================================
-// PHASE 5: DAHKACOIN (Crypto Fictive)
-// ============================================
-
-// Historique des prix du DahkaCoin
-model DahkaCoinPrice {
-  id        String   @id @default(cuid())
-  
-  price     Decimal  @db.Decimal(10, 4) // Prix en euros
-  trend     Int      @default(0)        // Tendance actuelle (-2 à +2)
-  
-  createdAt DateTime @default(now())
-
-  @@index([createdAt])
-}
-
-// Transactions DahkaCoin (pour historique)
-model DahkaCoinTx {
-  id        String   @id @default(cuid())
-  
-  userId    String
-  type      String   // "buy" ou "sell"
-  
-  dcAmount  Decimal  @db.Decimal(10, 4) // Quantité de DC
-  euroAmount Decimal @db.Decimal(10, 2) // Montant en euros
-  price     Decimal  @db.Decimal(10, 4) // Prix au moment de la transaction
-  
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([createdAt])
-}
-
-// ============================================
 // INVENTAIRE - Items consommables
 // ============================================
 
@@ -526,6 +495,76 @@ model ClickBattle {
   @@index([player1Id])
   @@index([player2Id])
   @@index([status])
+}
+
+// ============================================
+// BOT CONFIG - Channels & Settings
+// ============================================
+
+model BotConfig {
+  key       String   @id // "channel_braquages", "channel_justice", "channel_casino", "channel_leaderboard"
+  value     String   // Channel ID
+  guildId   String
+  updatedAt DateTime @updatedAt
+}
+
+// Votes Discord actifs (pour tracker les messages avec réactions)
+model DiscordVote {
+  id            String   @id @default(cuid())
+  
+  messageId     String   @unique // ID du message Discord
+  channelId     String
+  guildId       String
+  
+  type          String   // "warn", "dahkacoin"
+  
+  // Pour les warns - lié au WarnVote
+  warnVoteId    String?  @unique
+  
+  // Pour dahkacoin gifts
+  targetUserId  String?  // User qui recevra les DC
+  creatorId     String   // User qui a créé le vote
+  
+  endsAt        DateTime
+  resolved      Boolean  @default(false)
+  
+  createdAt     DateTime @default(now())
+
+  @@index([messageId])
+  @@index([resolved, endsAt])
+}
+
+// ============================================
+// PHASE 5: DAHKACOIN (Crypto Fictive)
+// ============================================
+
+// Historique des prix du DahkaCoin
+model DahkaCoinPrice {
+  id        String   @id @default(cuid())
+  
+  price     Decimal  @db.Decimal(10, 4) // Prix en euros
+  trend     Int      @default(0)        // Tendance actuelle (-2 à +2)
+  
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// Transactions DahkaCoin (pour historique)
+model DahkaCoinTx {
+  id        String   @id @default(cuid())
+  
+  userId    String
+  type      String   // "buy" ou "sell"
+  
+  dcAmount  Decimal  @db.Decimal(10, 4) // Quantité de DC
+  euroAmount Decimal @db.Decimal(10, 2) // Montant en euros
+  price     Decimal  @db.Decimal(10, 4) // Prix au moment de la transaction
+  
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 // ============================================
