@@ -7,6 +7,8 @@ import {
   getRobberyCooldown,
   attemptRobbery,
   getRobberyHistory,
+  attemptAntibankRobbery,
+  getAntibankRobberyInfo,
 } from "@/actions/robbery";
 import {
   getActiveBounties,
@@ -69,12 +71,23 @@ export function RobberyClient({ userId }: RobberyClientProps) {
   const [bountyAmount, setBountyAmount] = useState("1");
   const [isCreatingBounty, setIsCreatingBounty] = useState(false);
 
+  // ANTIBANK CORP state
+  const [antibankInfo, setAntibankInfo] = useState<{
+    canRob: boolean;
+    balance: number;
+    maxSteal: number;
+    riskPercent: number;
+    successChance: number;
+  } | null>(null);
+  const [isRobbingAntibank, setIsRobbingAntibank] = useState(false);
+
   const loadData = useCallback(async () => {
-    const [targetsRes, cooldownRes, historyRes, bountiesRes] = await Promise.all([
+    const [targetsRes, cooldownRes, historyRes, bountiesRes, antibankRes] = await Promise.all([
       getRobberyTargets(),
       getRobberyCooldown(),
       getRobberyHistory(10),
       getActiveBounties(),
+      getAntibankRobberyInfo(),
     ]);
 
     if (targetsRes.success && targetsRes.targets) {
@@ -88,6 +101,7 @@ export function RobberyClient({ userId }: RobberyClientProps) {
     if (bountiesRes.success && bountiesRes.bounties) {
       setBounties(bountiesRes.bounties);
     }
+    setAntibankInfo(antibankRes);
     setIsLoading(false);
   }, []);
 
@@ -95,17 +109,28 @@ export function RobberyClient({ userId }: RobberyClientProps) {
     loadData();
   }, [loadData]);
 
-  // Cooldown countdown
+  // Cooldown countdown avec re-render chaque seconde
+  const [cooldownDisplay, setCooldownDisplay] = useState<string>("");
+  
   useEffect(() => {
-    if (!cooldownEnds) return;
+    if (!cooldownEnds) {
+      setCooldownDisplay("");
+      return;
+    }
 
-    const interval = setInterval(() => {
+    const updateCooldown = () => {
       const remaining = cooldownEnds - Date.now();
       if (remaining <= 0) {
         setCanRob(true);
         setCooldownEnds(undefined);
+        setCooldownDisplay("");
+      } else {
+        setCooldownDisplay(formatCooldown(remaining));
       }
-    }, 1000);
+    };
+
+    updateCooldown(); // Initial
+    const interval = setInterval(updateCooldown, 1000);
 
     return () => clearInterval(interval);
   }, [cooldownEnds]);
@@ -126,6 +151,23 @@ export function RobberyClient({ userId }: RobberyClientProps) {
     }
 
     setIsRobbing(null);
+  };
+
+  const handleRobAntibank = async () => {
+    if (isRobbingAntibank || !canRob) return;
+    setIsRobbingAntibank(true);
+    setLastResult(null);
+
+    const result = await attemptAntibankRobbery();
+
+    if (result.success && result.robbery) {
+      setLastResult(result.robbery);
+      setCanRob(false);
+      setCooldownEnds(Date.now() + 3 * 60 * 60 * 1000);
+      loadData();
+    }
+
+    setIsRobbingAntibank(false);
   };
 
   const handleOpenBountyForm = async () => {
@@ -198,12 +240,12 @@ export function RobberyClient({ userId }: RobberyClientProps) {
       </header>
 
       {/* Cooldown Status */}
-      {!canRob && cooldownEnds && (
+      {!canRob && cooldownDisplay && (
         <div className="text-center p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
           <p className="text-[var(--text-muted)] text-sm">
             prochain braquage dans{" "}
-            <span className="text-[var(--text)]">
-              {formatCooldown(cooldownEnds - Date.now())}
+            <span className="text-[var(--text)] tabular-nums">
+              {cooldownDisplay}
             </span>
           </p>
         </div>
@@ -244,6 +286,50 @@ export function RobberyClient({ userId }: RobberyClientProps) {
         </div>
       )}
 
+      {/* ANTIBANK CORP - Cible spéciale */}
+      {antibankInfo && antibankInfo.canRob && (
+        <section>
+          <h2 className="text-[0.75rem] uppercase tracking-widest text-red-400 mb-3">
+            cible speciale
+          </h2>
+          <div className="p-4 border-2 border-red-500/50 bg-red-500/5">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-sm font-medium text-red-400">ANTIBANK CORP</p>
+                <p className="text-[0.7rem] text-[var(--text-muted)]">
+                  tresor: {antibankInfo.balance.toFixed(2)}€
+                </p>
+              </div>
+              <button
+                onClick={handleRobAntibank}
+                disabled={!canRob || isRobbingAntibank}
+                className={`
+                  px-4 py-2 text-[0.75rem] uppercase tracking-wider border-2
+                  ${canRob && !isRobbingAntibank
+                    ? "border-red-500 text-red-400 hover:bg-red-500/20"
+                    : "border-red-500/30 text-red-400/50 cursor-not-allowed"
+                  }
+                  transition-all
+                `}
+              >
+                {isRobbingAntibank ? "..." : "braquer"}
+              </button>
+            </div>
+            <div className="text-[0.65rem] text-[var(--text-muted)] space-y-1">
+              <p>
+                <span className="text-red-400">{antibankInfo.successChance}%</span> de chances de reussite
+              </p>
+              <p>
+                succes: <span className="text-green-400">+{antibankInfo.maxSteal.toFixed(2)}€</span> (5% du tresor)
+              </p>
+              <p>
+                echec: <span className="text-red-400">-{antibankInfo.riskPercent}%</span> de ta balance
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Targets */}
       <section>
         <h2 className="text-[0.75rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">
@@ -263,10 +349,10 @@ export function RobberyClient({ userId }: RobberyClientProps) {
                 <div>
                   <p className="text-sm">{target.discordUsername}</p>
                   <p className="text-[0.7rem] text-[var(--text-muted)]">
-                    {target.balance.toFixed(2)}
+                    {target.balance.toFixed(2)}€
                     {target.hasBounty && (
                       <span className="text-yellow-400 ml-2">
-                        +{target.bountyAmount.toFixed(2)} prime
+                        +{target.bountyAmount.toFixed(2)}€ prime
                       </span>
                     )}
                   </p>

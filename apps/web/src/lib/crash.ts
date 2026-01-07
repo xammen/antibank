@@ -4,14 +4,25 @@
 // - 80% avant x5
 // - 95% avant x10
 // - 5% peuvent aller jusqu'à x50
+//
+// EVENT SPECIAL: Tous les 5 crashs, 30% de chance de "Big Multiplier" (x5-x25)
 
 const HOUSE_EDGE = 0.05; // 5% pour la maison
 
 /**
  * Génère un point de crash aléatoire avec la distribution correcte
  * Utilise une distribution exponentielle inversée
+ * @param isBigMultiplierRound - Si true, génère un multiplicateur entre x5 et x25
  */
-export function generateCrashPoint(): number {
+export function generateCrashPoint(isBigMultiplierRound: boolean = false): number {
+  // Event Big Multiplier: garantit un crash entre x5 et x25
+  if (isBigMultiplierRound) {
+    // Distribution uniforme entre 5 et 25
+    const bigMultiplier = 5 + Math.random() * 20;
+    return Math.floor(bigMultiplier * 100) / 100;
+  }
+
+  // Distribution normale
   // Formule: crashPoint = 1 / (1 - random * (1 - houseEdge))
   // Cela donne une distribution où la maison gagne sur le long terme
   const random = Math.random();
@@ -29,6 +40,19 @@ export function generateCrashPoint(): number {
   crashPoint = Math.max(crashPoint, 1.10);
   
   return Math.floor(crashPoint * 100) / 100;
+}
+
+/**
+ * Détermine si le prochain round est un "Big Multiplier" event
+ * @param gameNumber - Le numéro du jeu (1, 2, 3, etc.)
+ * @returns true si c'est un round Big Multiplier
+ */
+export function isBigMultiplierEvent(gameNumber: number): boolean {
+  // Tous les 5 jeux, 30% de chance
+  if (gameNumber % 5 === 0) {
+    return Math.random() < 0.30;
+  }
+  return false;
 }
 
 /**

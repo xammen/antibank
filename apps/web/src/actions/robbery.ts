@@ -2,6 +2,7 @@
 
 import { prisma, Prisma } from "@antibank/db";
 import { auth } from "@/lib/auth";
+import { getAntibankStats, removeFromAntibank, addToAntibank, ANTIBANK_CORP_ID, ANTIBANK_CORP_NAME } from "@/lib/antibank-corp";
 
 // Config braquage
 const ROBBERY_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3h
@@ -181,6 +182,11 @@ export async function attemptRobbery(victimId: string): Promise<RobberyResult> {
     const tax = Math.floor(grossAmount * SYSTEM_TAX_PERCENT) / 100;
     amount = Math.floor((grossAmount - tax) * 100) / 100;
 
+    // Envoyer la taxe à ANTIBANK CORP
+    if (tax > 0) {
+      addToAntibank(tax, `taxe braquage sur ${victim.discordUsername}`).catch(() => {});
+    }
+
     // Transaction atomique avec raw queries
     await prisma.$executeRaw`
       UPDATE "User" SET balance = balance - ${grossAmount} WHERE id = ${victimId}
@@ -278,6 +284,143 @@ export async function attemptRobbery(victimId: string): Promise<RobberyResult> {
       chance: successChance,
       roll
     }
+  };
+}
+
+// BRAQUAGE ANTIBANK CORP - Très risqué!
+// 20% de chances de réussite (80% d'échec)
+// Si échec: perd 80% de sa balance
+// Si succès: gagne 5% du trésor d'ANTIBANK
+export async function attemptAntibankRobbery(): Promise<RobberyResult> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "non connecte" };
+  }
+
+  const now = Date.now();
+
+  // Récupérer le braqueur
+  const robber = await prisma.$queryRaw<[{
+    id: string;
+    balance: string;
+    lastRobberyAt: Date | null;
+    discordUsername: string;
+  }]>`
+    SELECT id, balance::text, "lastRobberyAt", "discordUsername"
+    FROM "User"
+    WHERE id = ${session.user.id}
+  `;
+
+  if (!robber[0]) {
+    return { success: false, error: "utilisateur introuvable" };
+  }
+
+  const robberData = robber[0];
+  const robberBalance = parseFloat(robberData.balance);
+
+  // Vérifier cooldown
+  if (robberData.lastRobberyAt) {
+    const cooldownEnds = robberData.lastRobberyAt.getTime() + ROBBERY_COOLDOWN_MS;
+    if (now < cooldownEnds) {
+      return { success: false, error: "cooldown actif", cooldownEnds };
+    }
+  }
+
+  // Vérifier qu'on a assez pour risquer
+  if (robberBalance < 5) {
+    return { success: false, error: "minimum 5 euros pour braquer antibank" };
+  }
+
+  // Récupérer les stats d'ANTIBANK
+  const antibankStats = await getAntibankStats();
+  
+  if (!antibankStats.canBeRobbed) {
+    return { success: false, error: "antibank n'a pas assez (minimum 10 euros)" };
+  }
+
+  // Calcul des chances: 20% de base (très risqué!)
+  const successChance = 20;
+  
+  // Lancer le dé
+  const roll = Math.floor(Math.random() * 100) + 1;
+  const robberySuccess = roll <= successChance;
+
+  let amount: number;
+  const nowDate = new Date();
+
+  if (robberySuccess) {
+    // Succès! Vole 5% du trésor d'ANTIBANK
+    const stealAmount = antibankStats.maxSteal;
+    const { newBalance } = await removeFromAntibank(stealAmount);
+    amount = stealAmount;
+
+    // Ajouter au braqueur
+    await prisma.$executeRaw`
+      UPDATE "User" SET balance = balance + ${stealAmount}, "lastRobberyAt" = ${nowDate}
+      WHERE id = ${session.user.id}
+    `;
+
+    await prisma.transaction.create({
+      data: {
+        userId: session.user.id,
+        type: "antibank_robbery_win",
+        amount: new Prisma.Decimal(stealAmount),
+        description: `braquage reussi sur ANTIBANK CORP`
+      }
+    });
+
+  } else {
+    // Échec! Perd 80% de sa balance
+    const penalty = Math.floor(robberBalance * 0.80 * 100) / 100;
+    amount = -penalty;
+
+    await prisma.$executeRaw`
+      UPDATE "User" SET balance = balance - ${penalty}, "lastRobberyAt" = ${nowDate}
+      WHERE id = ${session.user.id}
+    `;
+
+    // L'argent perdu va à ANTIBANK (ajout via import)
+    const { addToAntibank } = await import("@/lib/antibank-corp");
+    await addToAntibank(penalty, `penalite braquage rate de ${robberData.discordUsername}`);
+
+    await prisma.transaction.create({
+      data: {
+        userId: session.user.id,
+        type: "antibank_robbery_fail",
+        amount: new Prisma.Decimal(-penalty),
+        description: `braquage rate sur ANTIBANK CORP - penalite 80%`
+      }
+    });
+  }
+
+  return {
+    success: true,
+    robbery: {
+      success: robberySuccess,
+      amount: Math.abs(amount),
+      victimName: ANTIBANK_CORP_NAME,
+      chance: successChance,
+      roll
+    }
+  };
+}
+
+// Récupérer les infos sur ANTIBANK pour l'affichage
+export async function getAntibankRobberyInfo(): Promise<{
+  canRob: boolean;
+  balance: number;
+  maxSteal: number;
+  riskPercent: number;
+  successChance: number;
+}> {
+  const stats = await getAntibankStats();
+  
+  return {
+    canRob: stats.canBeRobbed,
+    balance: stats.balance,
+    maxSteal: stats.maxSteal,
+    riskPercent: 80, // 80% de perte si échec
+    successChance: 20, // 20% de chances
   };
 }
 

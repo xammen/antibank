@@ -7,6 +7,7 @@ interface LeaderboardUser {
   name: string;
   balance: string;
   isMe: boolean;
+  isAntibank?: boolean;
 }
 
 // Odometer digit component - animates individual digits
@@ -57,12 +58,18 @@ function OdometerDigit({ digit, duration = 500 }: { digit: string; duration?: nu
 }
 
 // Animated balance display using odometer effect
-function AnimatedBalance({ value, isMe }: { value: string; isMe: boolean }) {
+function AnimatedBalance({ value, isMe, isAntibank }: { value: string; isMe: boolean; isAntibank?: boolean }) {
   const formatted = parseFloat(value).toFixed(2);
   const chars = (formatted + "e").split("");
 
+  const colorClass = isAntibank 
+    ? "text-red-400" 
+    : isMe 
+      ? "text-[var(--text)]" 
+      : "text-[var(--text-muted)]";
+
   return (
-    <span className={`font-mono flex ${isMe ? "text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
+    <span className={`font-mono flex ${colorClass}`}>
       {chars.map((char, i) => (
         <OdometerDigit key={i} digit={char} duration={400} />
       ))}
@@ -80,22 +87,32 @@ function LeaderboardRow({
   rank: number;
   style: React.CSSProperties;
 }) {
+  const bgClass = user.isAntibank 
+    ? "bg-red-500/5 border-l-2 border-red-500/30" 
+    : user.isMe 
+      ? "bg-[rgba(255,255,255,0.03)]" 
+      : "";
+
+  const nameClass = user.isAntibank
+    ? "text-red-400 font-medium"
+    : user.isMe 
+      ? "text-[var(--text)]" 
+      : "text-[var(--text-muted)]";
+
   return (
     <div
       style={style}
-      className={`absolute left-0 right-0 flex items-center justify-between px-3 py-2 transition-all duration-500 ease-out ${
-        user.isMe ? "bg-[rgba(255,255,255,0.03)]" : ""
-      }`}
+      className={`absolute left-0 right-0 flex items-center justify-between px-3 py-2 transition-all duration-500 ease-out ${bgClass}`}
     >
       <div className="flex items-center gap-2 min-w-0">
-        <span className="text-[0.6rem] text-[var(--text-muted)] w-4">{rank}.</span>
-        <span
-          className={`text-xs truncate ${user.isMe ? "text-[var(--text)]" : "text-[var(--text-muted)]"}`}
-        >
-          {user.name?.toLowerCase() || "anon"}
+        <span className={`text-[0.6rem] w-4 ${user.isAntibank ? "text-red-400" : "text-[var(--text-muted)]"}`}>
+          {rank}.
+        </span>
+        <span className={`text-xs truncate ${nameClass}`}>
+          {user.isAntibank ? user.name : (user.name?.toLowerCase() || "anon")}
         </span>
       </div>
-      <AnimatedBalance value={user.balance} isMe={user.isMe} />
+      <AnimatedBalance value={user.balance} isMe={user.isMe} isAntibank={user.isAntibank} />
     </div>
   );
 }

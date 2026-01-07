@@ -438,6 +438,60 @@ model RevolutionBallot {
 }
 
 // ============================================
+// INVENTAIRE - Items consommables
+// ============================================
+
+model InventoryItem {
+  id          String   @id @default(cuid())
+  
+  userId      String
+  itemId      String   // ID de l'item (pied_de_biche, gilet_pare_balles, etc.)
+  
+  charges     Int      // Utilisations restantes (-1 = permanent)
+  expiresAt   DateTime? // Pour les items temporaires (VPN, etc.)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, itemId])
+}
+
+// ============================================
+// CLICK BATTLE - Duel de clics
+// ============================================
+
+model ClickBattle {
+  id           String   @id @default(cuid())
+  
+  player1Id    String   // Celui qui lance le défi
+  player2Id    String?  // Celui qui accepte
+  
+  amount       Decimal  @db.Decimal(10, 2) // Mise de chaque joueur
+  duration     Int      @default(10) // Durée en secondes (10s par défaut)
+  
+  // Résultats (soumis à la fin)
+  player1Clicks  Int?
+  player2Clicks  Int?
+  winnerId       String?  // null si égalité
+  
+  status       String   @default("pending") // "pending", "accepted", "playing", "revealing", "completed", "cancelled", "expired"
+  
+  // Timestamps
+  acceptedAt   DateTime?
+  startedAt    DateTime? // Quand les deux joueurs ont confirmé être prêts
+  revealedAt   DateTime? // Quand les résultats sont révélés
+  
+  expiresAt    DateTime // Expire après 5 min si pas accepté
+  createdAt    DateTime @default(now())
+  completedAt  DateTime?
+
+  @@index([player1Id])
+  @@index([player2Id])
+  @@index([status])
+}
+
+// ============================================
 // PHASE 5: DAHKACOIN (Crypto Fictive)
 // ============================================
 

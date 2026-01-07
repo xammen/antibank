@@ -6,8 +6,10 @@ import {
   generateCrashPoint,
   calculateMultiplier,
   timeToMultiplier,
+  isBigMultiplierEvent,
   CRASH_CONFIG,
 } from "./crash";
+import { addToAntibank } from "./antibank-corp";
 
 interface CrashPlayerPublic {
   odrzerId: string;
@@ -22,6 +24,7 @@ interface CrashHistoryEntry {
   id: string;
   crashPoint: number;
   createdAt: Date;
+  isBigMultiplier?: boolean;
 }
 
 interface PublicState {
@@ -35,6 +38,8 @@ interface PublicState {
   skipVotes: number;
   skipVotesNeeded: number;
   history: CrashHistoryEntry[];
+  isBigMultiplierRound: boolean;
+  nextBigMultiplierIn: number; // Nombre de parties avant le prochain check
 }
 
 // Durées en ms
@@ -135,10 +140,15 @@ class CrashGameManager {
       return existingGame;
     }
 
+    // Compter les parties pour déterminer si c'est un Big Multiplier round
+    const gameCount = await prisma.crashGame.count();
+    const nextGameNumber = gameCount + 1;
+    const isBigMultiplier = isBigMultiplierEvent(nextGameNumber);
+    
     // Créer la nouvelle partie
     const newGame = await prisma.crashGame.create({
       data: {
-        crashPoint: new Prisma.Decimal(generateCrashPoint()),
+        crashPoint: new Prisma.Decimal(generateCrashPoint(isBigMultiplier)),
         status: "waiting",
       },
       include: {
@@ -288,6 +298,14 @@ class CrashGameManager {
     }
     const skipVotesNeeded = Math.max(MIN_PLAYERS_FOR_SKIP, Math.ceil(players.length * 0.5));
     
+    // Calculer le nombre de parties pour le Big Multiplier event
+    const totalGames = history.length + 1; // +1 pour la partie en cours
+    const gamesSinceLastCheck = totalGames % 5;
+    const nextBigMultiplierIn = gamesSinceLastCheck === 0 ? 0 : 5 - gamesSinceLastCheck;
+    
+    // Vérifier si c'est un round Big Multiplier (crash >= 5)
+    const isBigMultiplierRound = crashPoint >= 5;
+    
     return {
       id: game.id,
       state,
@@ -299,6 +317,8 @@ class CrashGameManager {
       skipVotes,
       skipVotesNeeded,
       history,
+      isBigMultiplierRound,
+      nextBigMultiplierIn,
     };
   }
 
@@ -514,8 +534,13 @@ class CrashGameManager {
 
     const betAmount = Number(bet.amount);
     const grossWin = betAmount * multiplier;
-    const tax = (grossWin - betAmount) * 0.05;
+    const tax = Math.floor((grossWin - betAmount) * 0.05 * 100) / 100;
     const profit = Math.floor((grossWin - betAmount - tax) * 100) / 100;
+    
+    // Envoyer la taxe à ANTIBANK CORP
+    if (tax > 0) {
+      addToAntibank(tax, "taxe crash game").catch(() => {});
+    }
 
     // Mise à jour atomique
     try {

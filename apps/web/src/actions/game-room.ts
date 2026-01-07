@@ -3,6 +3,7 @@
 import { prisma } from "@antibank/db";
 import { auth } from "@/lib/auth";
 import { Decimal } from "@prisma/client/runtime/library";
+import { addToAntibank } from "@/lib/antibank-corp";
 
 // Types
 export type GameType = "dice" | "pfc";
@@ -613,8 +614,13 @@ async function playDiceGame(room: any): Promise<{ success: boolean; room?: GameR
 
   // Calculer les gains
   const pot = Number(room.amount) * readyPlayers.length;
-  const houseFee = pot * HOUSE_FEE;
+  const houseFee = Math.floor(pot * HOUSE_FEE * 100) / 100;
   const prizePool = pot - houseFee;
+
+  // Envoyer les frais à ANTIBANK CORP
+  if (houseFee > 0) {
+    addToAntibank(houseFee, "taxe game room dice").catch(() => {});
+  }
 
   // Trouver les gagnants (peut y avoir égalité)
   const maxRoll = rolls[0].total;
@@ -787,8 +793,13 @@ async function resolvePFCGame(room: any): Promise<{ success: boolean; room?: Gam
   }
 
   const pot = Number(room.amount) * readyPlayers.length;
-  const houseFee = pot * HOUSE_FEE;
+  const houseFee = Math.floor(pot * HOUSE_FEE * 100) / 100;
   const prizePool = pot - houseFee;
+
+  // Envoyer les frais à ANTIBANK CORP
+  if (houseFee > 0) {
+    addToAntibank(houseFee, "taxe game room pfc").catch(() => {});
+  }
 
   const winners = winningChoice
     ? readyPlayers.filter((p: any) => p.choice === winningChoice)

@@ -56,9 +56,9 @@ export function Clicker({ userId, clickValue = 0.01, icon = "cookie" }: ClickerP
     
     isSyncing.current = true;
     const clicksToSync = pendingClicks.current;
-    const optimisticSynced = optimisticAmount.current;
+    const amountToSync = clicksToSync * clickValue;
     pendingClicks.current = 0;
-    optimisticAmount.current = 0;
+    optimisticAmount.current -= amountToSync; // Retire seulement ce qu'on sync
     
     try {
       const result = await clickBatch(userId, clicksToSync);
@@ -68,24 +68,33 @@ export function Clicker({ userId, clickValue = 0.01, icon = "cookie" }: ClickerP
         if (result.clicksRemaining !== undefined) {
           setClicksRemaining(result.clicksRemaining);
         }
-        // Sync avec le vrai solde serveur - mais ajoute les clics optimistes en cours
+        // Sync avec le vrai solde serveur + clics optimistes restants
         if (result.newBalance !== undefined) {
           lastServerBalance.current = result.newBalance;
-          // Ajoute les clics qui ont été faits pendant le sync
-          const pendingOptimistic = optimisticAmount.current;
-          setBalance((result.newBalance + pendingOptimistic).toFixed(2));
+          setBalance((result.newBalance + optimisticAmount.current).toFixed(2));
         }
       } else {
-        // Erreur - on rollback seulement les clics qui ont échoué
-        // mais on garde les nouveaux clics optimistes
-        setError(result.error || "erreur");
-        if (result.clicksRemaining !== undefined) {
-          setClicksRemaining(result.clicksRemaining);
-        }
-        // Rollback les clics échoués si on a le dernier solde serveur
-        if (lastServerBalance.current !== null) {
-          const pendingOptimistic = optimisticAmount.current;
-          setBalance((lastServerBalance.current + pendingOptimistic).toFixed(2));
+        // Erreur - on ne rollback PAS si c'est juste "trop rapide"
+        // On garde les clics dans optimistic et on réessaye
+        const isRateLimit = result.error === "trop rapide" || result.error?.startsWith("calme toi");
+        
+        if (isRateLimit) {
+          // Rate limit - on requeue les clics pour réessayer
+          pendingClicks.current += clicksToSync;
+          optimisticAmount.current += amountToSync;
+          setError(result.error || "erreur");
+          // Retry après un délai
+          setTimeout(() => syncClicks(), 500);
+        } else {
+          // Vraie erreur - rollback ces clics seulement
+          setError(result.error || "erreur");
+          if (result.clicksRemaining !== undefined) {
+            setClicksRemaining(result.clicksRemaining);
+          }
+          // Rollback le montant qui a échoué
+          if (lastServerBalance.current !== null) {
+            setBalance((lastServerBalance.current + optimisticAmount.current).toFixed(2));
+          }
         }
         if (errorTimeout.current) clearTimeout(errorTimeout.current);
         errorTimeout.current = setTimeout(() => setError(null), 2000);
@@ -94,7 +103,7 @@ export function Clicker({ userId, clickValue = 0.01, icon = "cookie" }: ClickerP
       setError("erreur reseau");
       // En cas d'erreur réseau, on re-ajoute les clics au pending pour réessayer
       pendingClicks.current += clicksToSync;
-      optimisticAmount.current += optimisticSynced;
+      optimisticAmount.current += amountToSync;
       errorTimeout.current = setTimeout(() => setError(null), 2000);
     } finally {
       isSyncing.current = false;
@@ -103,7 +112,7 @@ export function Clicker({ userId, clickValue = 0.01, icon = "cookie" }: ClickerP
         syncClicks();
       }
     }
-  }, [userId, setBalance]);
+  }, [userId, clickValue, setBalance]);
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     // Check limite locale
@@ -144,8 +153,9 @@ export function Clicker({ userId, clickValue = 0.01, icon = "cookie" }: ClickerP
     addToBalance(clickValue);
     setClicksRemaining(prev => Math.max(0, prev - 1));
     
-    // Accumule le clic
+    // Accumule le clic et track le montant optimiste
     pendingClicks.current += 1;
+    optimisticAmount.current += clickValue;
     
     // Debounce: sync après 300ms d'inactivité
     if (batchTimeout.current) clearTimeout(batchTimeout.current);
