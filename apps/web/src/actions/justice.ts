@@ -791,3 +791,63 @@ export async function resolveExpiredRevolutions(): Promise<{ resolved: number }>
 
   return { resolved };
 }
+
+// ============================================
+// SKIP VOTE TIMERS (admin/debug)
+// ============================================
+
+export async function skipWarnTimer(warnId: string): Promise<{ success: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "non connecte" };
+  }
+
+  // Verifier que le warn existe et est en cours
+  const warn = await prisma.$queryRaw<Array<{ id: string; status: string }>>`
+    SELECT id, status FROM "WarnVote" WHERE id = ${warnId}
+  `;
+
+  if (!warn[0]) {
+    return { success: false, error: "warn introuvable" };
+  }
+
+  if (warn[0].status !== "voting") {
+    return { success: false, error: "vote deja termine" };
+  }
+
+  // Mettre endsAt a maintenant pour forcer la resolution
+  await prisma.$executeRaw`
+    UPDATE "WarnVote" SET "endsAt" = NOW() WHERE id = ${warnId} AND status = 'voting'
+  `;
+
+  // Resoudre immediatement
+  await resolveExpiredWarns();
+  
+  return { success: true };
+}
+
+export async function skipRevolutionTimer(): Promise<{ success: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "non connecte" };
+  }
+
+  // Verifier qu'une revolution est en cours
+  const rev = await prisma.$queryRaw<Array<{ id: string; status: string }>>`
+    SELECT id, status FROM "Revolution" WHERE status = 'voting' LIMIT 1
+  `;
+
+  if (!rev[0]) {
+    return { success: false, error: "pas de revolution active" };
+  }
+
+  // Mettre endsAt a maintenant pour forcer la resolution
+  await prisma.$executeRaw`
+    UPDATE "Revolution" SET "endsAt" = NOW() WHERE status = 'voting'
+  `;
+
+  // Resoudre immediatement
+  await resolveExpiredRevolutions();
+  
+  return { success: true };
+}

@@ -10,6 +10,8 @@ import {
   getActiveRevolution,
   startRevolution,
   voteOnRevolution,
+  skipWarnTimer,
+  skipRevolutionTimer,
 } from "@/actions/justice";
 
 interface ActiveWarn {
@@ -155,6 +157,30 @@ export function JusticeClient({ userId }: JusticeClientProps) {
     setVotingOn(null);
   };
 
+  const handleSkipWarnTimer = async (warnId: string) => {
+    if (votingOn) return;
+    setVotingOn(warnId);
+    const result = await skipWarnTimer(warnId);
+    if (!result.success) {
+      setError(result.error || "erreur inconnue");
+      setTimeout(() => setError(null), 4000);
+    }
+    await loadData();
+    setVotingOn(null);
+  };
+
+  const handleSkipRevolutionTimer = async () => {
+    if (votingOn) return;
+    setVotingOn("revolution");
+    const result = await skipRevolutionTimer();
+    if (!result.success) {
+      setError(result.error || "erreur inconnue");
+      setTimeout(() => setError(null), 4000);
+    }
+    await loadData();
+    setVotingOn(null);
+  };
+
   const formatTimeRemaining = (endsAt: Date) => {
     const remaining = new Date(endsAt).getTime() - Date.now();
     if (remaining <= 0) return "terminé";
@@ -209,15 +235,25 @@ export function JusticeClient({ userId }: JusticeClientProps) {
               <span className="text-[var(--text-muted)]">mediane:</span>{" "}
               {revolution.medianBalance.toFixed(2)}
             </p>
-            <p className="text-sm mb-3">
-              <span className="text-green-400">pour: {revolution.forVotes}</span>
-              {" | "}
-              <span className="text-red-400">contre: {revolution.againstVotes}</span>
-              {" | "}
-              <span className="text-[var(--text-muted)]">
-                {formatTimeRemaining(revolution.endsAt)}
-              </span>
-            </p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm">
+                <span className="text-green-400">pour: {revolution.forVotes}</span>
+                {" | "}
+                <span className="text-red-400">contre: {revolution.againstVotes}</span>
+                {" | "}
+                <span className="text-[var(--text-muted)]">
+                  {formatTimeRemaining(revolution.endsAt)}
+                </span>
+              </p>
+              <button
+                onClick={handleSkipRevolutionTimer}
+                disabled={votingOn !== null}
+                className="text-[0.65rem] uppercase tracking-wider text-[var(--text-muted)] hover:text-yellow-400 transition-colors px-2 py-1 border border-[var(--line)] hover:border-yellow-400/50"
+                title="forcer la fin du vote"
+              >
+                skip
+              </button>
+            </div>
 
             {revolution.myVote ? (
               <p className="text-sm text-[var(--text-muted)]">
@@ -367,15 +403,25 @@ export function JusticeClient({ userId }: JusticeClientProps) {
                     </span>
                   </div>
                   
-                  <p className="text-[0.75rem] mb-2">
-                    <span className="text-red-400">coupable: {warn.guiltyVotes}</span>
-                    {" | "}
-                    <span className="text-green-400">innocent: {warn.innocentVotes}</span>
-                    {" | "}
-                    <span className="text-[var(--text-muted)]">
-                      {formatTimeRemaining(warn.endsAt)}
-                    </span>
-                  </p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[0.75rem]">
+                      <span className="text-red-400">coupable: {warn.guiltyVotes}</span>
+                      {" | "}
+                      <span className="text-green-400">innocent: {warn.innocentVotes}</span>
+                      {" | "}
+                      <span className="text-[var(--text-muted)]">
+                        {formatTimeRemaining(warn.endsAt)}
+                      </span>
+                    </p>
+                    <button
+                      onClick={() => handleSkipWarnTimer(warn.id)}
+                      disabled={votingOn !== null}
+                      className="text-[0.6rem] uppercase tracking-wider text-[var(--text-muted)] hover:text-yellow-400 transition-colors px-1.5 py-0.5 border border-[var(--line)] hover:border-yellow-400/50"
+                      title="forcer la fin du vote"
+                    >
+                      skip
+                    </button>
+                  </div>
 
                   {warn.myVote ? (
                     <p className="text-[0.75rem] text-[var(--text-muted)]">
