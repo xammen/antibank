@@ -29,7 +29,7 @@ interface DahkaCoinClientProps {
 }
 
 // Animated price display
-function AnimatedPrice({ value, trend }: { value: number; trend: number }) {
+function AnimatedPrice({ value, momentum }: { value: number; momentum: number }) {
   const [displayValue, setDisplayValue] = useState(value);
   const [isIncreasing, setIsIncreasing] = useState(false);
   const [isDecreasing, setIsDecreasing] = useState(false);
@@ -69,16 +69,16 @@ function AnimatedPrice({ value, trend }: { value: number; trend: number }) {
   const getTrendColor = () => {
     if (isIncreasing) return "text-green-400";
     if (isDecreasing) return "text-red-400";
-    if (trend > 0.3) return "text-green-400";
-    if (trend < -0.3) return "text-red-400";
+    if (momentum > 0.3) return "text-green-400";
+    if (momentum < -0.3) return "text-red-400";
     return "text-gray-400";
   };
 
   const getTrendIcon = () => {
-    if (trend > 0.5) return "↑↑";
-    if (trend > 0.2) return "↑";
-    if (trend < -0.5) return "↓↓";
-    if (trend < -0.2) return "↓";
+    if (momentum > 0.5) return "↑↑";
+    if (momentum > 0.2) return "↑";
+    if (momentum < -0.5) return "↓↓";
+    if (momentum < -0.2) return "↓";
     return "→";
   };
 
@@ -91,10 +91,12 @@ function AnimatedPrice({ value, trend }: { value: number; trend: number }) {
 
 export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
   const [currentPrice, setCurrentPrice] = useState<number>(1);
-  const [trend, setTrend] = useState<number>(0);
-  const [volatility, setVolatility] = useState<number>(1);
+  const [phase, setPhase] = useState<string>("accumulation");
+  const [phaseProgress, setPhaseProgress] = useState<number>(0);
+  const [volatility, setVolatility] = useState<string>("normal");
   const [momentum, setMomentum] = useState<number>(0);
-  const [trendDuration, setTrendDuration] = useState<number>(0);
+  const [activeEvent, setActiveEvent] = useState<string>("none");
+  const [eventIntensity, setEventIntensity] = useState<number>(0);
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
   const [realtimePrices, setRealtimePrices] = useState<{ price: number; time: number }[]>([]);
   const [userDC, setUserDC] = useState<number>(0);
@@ -108,8 +110,6 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
   const [tradeAmount, setTradeAmount] = useState("");
   const [isTrading, setIsTrading] = useState(false);
   const [tradeResult, setTradeResult] = useState<{ success: boolean; message: string } | null>(null);
-  
-  const [event, setEvent] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -121,10 +121,12 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
     ]);
 
     setCurrentPrice(state.currentPrice);
-    setTrend(state.trend);
+    setPhase(state.phase);
+    setPhaseProgress(state.phaseProgress);
     setVolatility(state.volatility);
     setMomentum(state.momentum);
-    setTrendDuration(state.trendDuration);
+    setActiveEvent(state.activeEvent);
+    setEventIntensity(state.eventIntensity);
     setPriceHistory(state.priceHistory);
     setUserDC(state.userDC);
     setUserAvgPrice(state.userAvgPrice);
@@ -154,15 +156,12 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
         const result = await tickPrice();
         
         setCurrentPrice(result.price);
-        setTrend(result.trend);
+        setPhase(result.phase);
+        setPhaseProgress(result.phaseProgress);
         setVolatility(result.volatility);
         setMomentum(result.momentum);
-        setTrendDuration(result.trendDuration);
-        
-        if (result.event) {
-          setEvent(result.event);
-          setTimeout(() => setEvent(null), 5000);
-        }
+        setActiveEvent(result.activeEvent);
+        setEventIntensity(result.eventIntensity);
 
         // Add to realtime prices (keep last 120 points = 2 minutes)
         setRealtimePrices(prev => {
@@ -241,12 +240,12 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       ctx.fillText(price.toFixed(4) + "€", padding - 5, y + 3);
     }
 
-    // Draw gradient fill
+    // Draw gradient fill based on momentum
     const gradient = ctx.createLinearGradient(0, padding, 0, height - padding);
-    if (trend > 0.2) {
+    if (momentum > 0.2) {
       gradient.addColorStop(0, "rgba(74, 222, 128, 0.3)");
       gradient.addColorStop(1, "rgba(74, 222, 128, 0)");
-    } else if (trend < -0.2) {
+    } else if (momentum < -0.2) {
       gradient.addColorStop(0, "rgba(248, 113, 113, 0.3)");
       gradient.addColorStop(1, "rgba(248, 113, 113, 0)");
     } else {
@@ -273,7 +272,7 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
     ctx.fill();
 
     // Draw price line
-    ctx.strokeStyle = trend > 0.2 ? "#4ade80" : trend < -0.2 ? "#f87171" : "#888";
+    ctx.strokeStyle = momentum > 0.2 ? "#4ade80" : momentum < -0.2 ? "#f87171" : "#888";
     ctx.lineWidth = 2;
     ctx.beginPath();
     dataToUse.forEach((point, i) => {
@@ -295,10 +294,10 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       const y = padding + (height - 2 * padding) * (1 - (lastPoint.price - minPrice) / priceRange);
       
       // Glow effect
-      ctx.shadowColor = trend > 0.2 ? "#4ade80" : trend < -0.2 ? "#f87171" : "#888";
+      ctx.shadowColor = momentum > 0.2 ? "#4ade80" : momentum < -0.2 ? "#f87171" : "#888";
       ctx.shadowBlur = 10;
       
-      ctx.fillStyle = trend > 0.2 ? "#4ade80" : trend < -0.2 ? "#f87171" : "#888";
+      ctx.fillStyle = momentum > 0.2 ? "#4ade80" : momentum < -0.2 ? "#f87171" : "#888";
       ctx.beginPath();
       ctx.arc(x, y, 5, 0, Math.PI * 2);
       ctx.fill();
@@ -324,7 +323,7 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       ctx.fillText("achat: " + userAvgPrice.toFixed(4) + "€", padding + 5, y - 5);
     }
 
-  }, [priceHistory, realtimePrices, trend, userAvgPrice, period]);
+  }, [priceHistory, realtimePrices, momentum, userAvgPrice, period]);
 
   const handleTrade = async () => {
     if (isTrading || !tradeAmount) return;
@@ -365,18 +364,53 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
     setIsTrading(false);
   };
 
-  const getTrendDescription = () => {
-    if (trend > 0.7) return "bullish fort";
-    if (trend > 0.3) return "bullish";
-    if (trend < -0.7) return "bearish fort";
-    if (trend < -0.3) return "bearish";
-    return "neutre";
+  const getPhaseDescription = () => {
+    const phases: Record<string, string> = {
+      accumulation: "accumulation",
+      markup: "hausse",
+      euphoria: "euphorie",
+      distribution: "distribution",
+      decline: "baisse",
+      capitulation: "capitulation",
+      recovery: "recuperation",
+    };
+    return phases[phase] || phase;
   };
 
-  const getVolatilityDescription = () => {
-    if (volatility > 1.5) return "haute";
-    if (volatility < 0.7) return "basse";
-    return "normale";
+  const getPhaseColor = () => {
+    const colors: Record<string, string> = {
+      accumulation: "text-gray-400",
+      markup: "text-green-400",
+      euphoria: "text-green-300",
+      distribution: "text-yellow-400",
+      decline: "text-red-400",
+      capitulation: "text-red-300",
+      recovery: "text-blue-400",
+    };
+    return colors[phase] || "text-gray-400";
+  };
+
+  const getEventBanner = () => {
+    if (activeEvent === "none") return null;
+    
+    const events: Record<string, { text: string; color: string }> = {
+      whale_pump: { text: "🐋 WHALE PUMP!", color: "border-green-500 bg-green-500/10 text-green-400" },
+      whale_dump: { text: "🐋 WHALE DUMP!", color: "border-red-500 bg-red-500/10 text-red-400" },
+      flash_crash: { text: "⚡ FLASH CRASH!", color: "border-red-600 bg-red-600/10 text-red-300" },
+      mega_pump: { text: "🚀 MEGA PUMP!", color: "border-green-400 bg-green-400/10 text-green-300" },
+      liquidity_crisis: { text: "💀 LIQUIDITE CRISIS!", color: "border-yellow-500 bg-yellow-500/10 text-yellow-400" },
+      fomo_wave: { text: "📈 FOMO WAVE!", color: "border-green-500 bg-green-500/10 text-green-400" },
+      panic_wave: { text: "📉 PANIC!", color: "border-red-500 bg-red-500/10 text-red-400" },
+    };
+    
+    const event = events[activeEvent];
+    if (!event) return null;
+    
+    return (
+      <div className={`p-4 border text-center animate-pulse ${event.color}`}>
+        {event.text} (intensite: {(eventIntensity * 100).toFixed(0)}%)
+      </div>
+    );
   };
 
   if (isLoading) {
@@ -399,37 +433,29 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       </div>
 
       {/* Event banner */}
-      {event && (
-        <div className={`p-4 rounded border text-center animate-pulse ${
-          event === "pump" 
-            ? "border-green-500 bg-green-500/10 text-green-400" 
-            : "border-red-500 bg-red-500/10 text-red-400"
-        }`}>
-          {event === "pump" ? "🚀 PUMP!" : "📉 KRACH!"}
-        </div>
-      )}
+      {getEventBanner()}
 
       {/* Price card */}
-      <div className="border border-[var(--line)] p-6 rounded">
+      <div className="border border-[var(--line)] p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-[var(--text-muted)] text-sm">prix actuel</p>
-            <AnimatedPrice value={currentPrice} trend={trend} />
+            <AnimatedPrice value={currentPrice} momentum={momentum} />
           </div>
           <div className="text-right space-y-1">
             <div className="flex items-center justify-end gap-2">
-              <span className="text-[var(--text-muted)] text-xs">tendance:</span>
-              <span className={`text-xs ${trend > 0.2 ? "text-green-400" : trend < -0.2 ? "text-red-400" : "text-gray-400"}`}>
-                {getTrendDescription()}
+              <span className="text-[var(--text-muted)] text-xs">phase:</span>
+              <span className={`text-xs ${getPhaseColor()}`}>
+                {getPhaseDescription()}
               </span>
             </div>
             <div className="flex items-center justify-end gap-2">
-              <span className="text-[var(--text-muted)] text-xs">volatilité:</span>
-              <span className="text-xs text-gray-400">{getVolatilityDescription()}</span>
+              <span className="text-[var(--text-muted)] text-xs">progression:</span>
+              <span className="text-xs text-gray-400">{(phaseProgress * 100).toFixed(0)}%</span>
             </div>
             <div className="flex items-center justify-end gap-2">
-              <span className="text-[var(--text-muted)] text-xs">prochain changement:</span>
-              <span className="text-xs text-gray-400">{Math.max(0, Math.floor(trendDuration))}s</span>
+              <span className="text-[var(--text-muted)] text-xs">volatilite:</span>
+              <span className="text-xs text-gray-400">{volatility}</span>
             </div>
           </div>
         </div>
@@ -440,7 +466,7 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
             <button
               key={p}
               onClick={() => setPeriod(p)}
-              className={`px-3 py-1 rounded text-sm transition-colors ${
+              className={`px-3 py-1 text-sm transition-colors ${
                 period === p
                   ? "bg-[var(--text)] text-[var(--bg)]"
                   : "border border-[var(--line)] hover:border-[var(--text)]"
@@ -450,7 +476,7 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
             </button>
           ))}
           <span className="ml-auto text-xs text-[var(--text-muted)] self-center">
-            {period === "1h" ? "temps réel" : "historique"}
+            {period === "1h" ? "temps reel" : "historique"}
           </span>
         </div>
 
@@ -459,12 +485,12 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
           ref={canvasRef}
           width={600}
           height={200}
-          className="w-full h-[200px] rounded"
+          className="w-full h-[200px]"
         />
       </div>
 
       {/* Portfolio */}
-      <div className="border border-[var(--line)] p-6 rounded">
+      <div className="border border-[var(--line)] p-6">
         <h2 className="text-lg font-light mb-4">ton portefeuille</h2>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -495,13 +521,13 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       </div>
 
       {/* Trading */}
-      <div className="border border-[var(--line)] p-6 rounded">
+      <div className="border border-[var(--line)] p-6">
         <h2 className="text-lg font-light mb-4">trader</h2>
         
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setTradeMode("buy")}
-            className={`flex-1 py-2 rounded transition-colors ${
+            className={`flex-1 py-2 transition-colors ${
               tradeMode === "buy"
                 ? "bg-green-600 text-white"
                 : "border border-[var(--line)] hover:border-green-600"
@@ -511,7 +537,7 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
           </button>
           <button
             onClick={() => setTradeMode("sell")}
-            className={`flex-1 py-2 rounded transition-colors ${
+            className={`flex-1 py-2 transition-colors ${
               tradeMode === "sell"
                 ? "bg-red-600 text-white"
                 : "border border-[var(--line)] hover:border-red-600"
@@ -524,7 +550,7 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
         <div className="space-y-4">
           <div>
             <label className="text-[var(--text-muted)] text-sm block mb-1">
-              {tradeMode === "buy" ? "montant en euros" : "quantité de DC"}
+              {tradeMode === "buy" ? "montant en euros" : "quantite de DC"}
             </label>
             <div className="flex gap-2">
               <input
@@ -534,12 +560,12 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
                 placeholder={tradeMode === "buy" ? "ex: 10" : "ex: 5.5"}
                 step="0.01"
                 min="0"
-                className="flex-1 bg-transparent border border-[var(--line)] rounded px-3 py-2 focus:border-[var(--text)] outline-none transition-colors"
+                className="flex-1 bg-transparent border border-[var(--line)] px-3 py-2 focus:border-[var(--text)] outline-none transition-colors"
               />
               <button
                 onClick={handleTrade}
                 disabled={isTrading || !tradeAmount}
-                className={`px-6 py-2 rounded transition-colors ${
+                className={`px-6 py-2 transition-colors ${
                   tradeMode === "buy"
                     ? "bg-green-600 hover:bg-green-700 disabled:bg-green-900"
                     : "bg-red-600 hover:bg-red-700 disabled:bg-red-900"
@@ -554,7 +580,7 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
             <p className="text-[var(--text-muted)] text-sm">
               {tradeMode === "buy"
                 ? `≈ ${(parseFloat(tradeAmount) / currentPrice).toFixed(4)} DC`
-                : `≈ ${(parseFloat(tradeAmount) * currentPrice * 0.98).toFixed(2)}€ (après 2% frais)`}
+                : `≈ ${(parseFloat(tradeAmount) * currentPrice * 0.98).toFixed(2)}€ (apres 2% frais)`}
             </p>
           )}
 
@@ -567,7 +593,7 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       </div>
 
       {/* Transaction history */}
-      <div className="border border-[var(--line)] p-6 rounded">
+      <div className="border border-[var(--line)] p-6">
         <h2 className="text-lg font-light mb-4">historique</h2>
         
         {transactions.length === 0 ? (
@@ -607,12 +633,11 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       </div>
 
       {/* Info */}
-      <div className="text-[var(--text-muted)] text-sm space-y-1">
-        <p>• le prix fluctue chaque seconde avec des tendances réalistes</p>
-        <p>• les tendances durent 1 à 5 minutes puis changent</p>
-        <p>• événements rares: pump ou krach peuvent survenir</p>
+      <div className="text-[var(--text-muted)] text-xs space-y-1">
+        <p>• le prix evolue avec des phases de marche realistes</p>
+        <p>• phases: accumulation → hausse → euphorie → distribution → baisse → capitulation → recuperation</p>
+        <p>• evenements extremes: whale pump/dump, flash crash, mega pump...</p>
         <p>• frais de vente: 2%</p>
-        <p>• prix minimum: 0.10€ / maximum: 50€</p>
       </div>
     </div>
   );
