@@ -527,3 +527,43 @@ model DahkaCoinTx {
   @@index([userId])
   @@index([createdAt])
 }
+
+// ============================================
+// ANTIBANK HEIST - Système de quête
+// ============================================
+
+model HeistProgress {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  
+  // Stage 1: Reconnaissance
+  voiceMinutes      Int      @default(0)   // 60 min requis (avec ≥1 autre personne)
+  crashGamesPlayed  Int      @default(0)   // 10 parties requis (mise ≥1€)
+  stage1Complete    Boolean  @default(false)
+  
+  // Stage 2: Financement
+  // balance >= 50€ (check live)
+  successfulRobberies  Int      @default(0)   // 3 requis
+  stage2Complete       Boolean  @default(false)
+  
+  // Stage 3: Équipement (check inventory live pour pied_de_biche + kit_crochetage)
+  // Optionnel: gilet_pare_balles (+10% chance), vpn (40% loss au lieu de 60%)
+  stage3Complete    Boolean  @default(false)
+  
+  // Stage 4: Boosters (reset après chaque tentative)
+  fastClicksAt      DateTime?  // Quand les 5000 clics en <20min ont été faits
+  casinoWinStreak   Int      @default(0)   // Streak actuel
+  bestWinStreak     Int      @default(0)   // Meilleur streak (5 requis pour bonus)
+  survivedRobbery   Boolean  @default(false)  // A survécu à un braquage raté contre lui
+  stage4Complete    Boolean  @default(false)
+  
+  // Heist tracking
+  lastHeistAt       DateTime?  // Dernier braquage ANTIBANK (cooldown 6h)
+  totalHeistAttempts Int     @default(0)
+  totalHeistSuccesses Int    @default(0)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([userId])
+}

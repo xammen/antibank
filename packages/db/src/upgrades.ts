@@ -224,6 +224,16 @@ export const ITEMS: Record<string, ConsumableItem> = {
     effect: { type: "robbery_penalty_reduce", value: 50 },
     icon: "📻",
   },
+  kit_crochetage: {
+    id: "kit_crochetage",
+    name: "Kit de crochetage",
+    description: "outils pro pour crocheter les serrures ANTIBANK (requis pour le braquage)",
+    category: "robbery",
+    price: 20,
+    charges: 1,
+    effect: { type: "antibank_required", value: 1 },
+    icon: "🔓",
+  },
 
   // Items de protection
   gilet_pare_balles: {

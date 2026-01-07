@@ -3,6 +3,14 @@
 import { prisma, Prisma } from "@antibank/db";
 import { auth } from "@/lib/auth";
 import { getAntibankStats, removeFromAntibank, addToAntibank, ANTIBANK_CORP_ID, ANTIBANK_CORP_NAME } from "@/lib/antibank-corp";
+import { 
+  getHeistProgress, 
+  recordHeistAttempt, 
+  resetHeistBoosters,
+  trackHeistRobberySuccess,
+  trackHeistSurvivedRobbery,
+  HEIST_CONFIG 
+} from "./heist";
 
 // Config braquage
 const ROBBERY_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3h
@@ -210,6 +218,9 @@ export async function attemptRobbery(victimId: string): Promise<RobberyResult> {
       }
     });
 
+    // Track pour la quête heist
+    trackHeistRobberySuccess(session.user.id).catch(() => {});
+
     await prisma.transaction.create({
       data: {
         userId: victimId,
@@ -273,6 +284,9 @@ export async function attemptRobbery(victimId: string): Promise<RobberyResult> {
         description: `braquage rate sur ${victim.discordUsername}`
       }
     });
+
+    // La victime a survécu - track pour sa quête heist
+    trackHeistSurvivedRobbery(victimId).catch(() => {});
   }
 
   return {
@@ -287,26 +301,51 @@ export async function attemptRobbery(victimId: string): Promise<RobberyResult> {
   };
 }
 
-// BRAQUAGE ANTIBANK CORP - Très risqué!
-// 20% de chances de réussite (80% d'échec)
-// Si échec: perd 80% de sa balance
-// Si succès: gagne 5% du trésor d'ANTIBANK
+// BRAQUAGE ANTIBANK CORP - Système de quête
+// Nécessite de compléter les stages 1-3, puis conditions stage 5 en temps réel
+// Stats avec boosters: 30-45% chance, 8-18% vol, 40-60% perte si échec
 export async function attemptAntibankRobbery(): Promise<RobberyResult> {
   const session = await auth();
   if (!session?.user?.id) {
     return { success: false, error: "non connecte" };
   }
 
-  const now = Date.now();
+  // Vérifier la progression de la quête
+  const heistProgress = await getHeistProgress();
+  if (!heistProgress) {
+    return { success: false, error: "erreur chargement progression" };
+  }
+
+  // Vérifier que les stages 1-3 sont complétés
+  if (!heistProgress.stages[2].complete) {
+    return { success: false, error: "complete les stages 1-3 d'abord" };
+  }
+
+  // Vérifier le cooldown heist (séparé du cooldown braquage normal)
+  if (heistProgress.cooldownEndsAt) {
+    return { success: false, error: "cooldown heist actif", cooldownEnds: heistProgress.cooldownEndsAt };
+  }
+
+  // Vérifier conditions stage 5 en temps réel
+  const stage5 = heistProgress.stages[4];
+  const voiceCheck = stage5.requirements.find(r => r.id === "voice_others");
+  const feeCheck = stage5.requirements.find(r => r.id === "entry_fee");
+
+  if (!voiceCheck?.complete) {
+    return { success: false, error: "tu dois etre en vocal avec 2+ personnes" };
+  }
+
+  if (!feeCheck?.complete) {
+    return { success: false, error: "tu dois avoir 100€ minimum (frais d'entree)" };
+  }
 
   // Récupérer le braqueur
   const robber = await prisma.$queryRaw<[{
     id: string;
     balance: string;
-    lastRobberyAt: Date | null;
     discordUsername: string;
   }]>`
-    SELECT id, balance::text, "lastRobberyAt", "discordUsername"
+    SELECT id, balance::text, "discordUsername"
     FROM "User"
     WHERE id = ${session.user.id}
   `;
@@ -318,19 +357,6 @@ export async function attemptAntibankRobbery(): Promise<RobberyResult> {
   const robberData = robber[0];
   const robberBalance = parseFloat(robberData.balance);
 
-  // Vérifier cooldown
-  if (robberData.lastRobberyAt) {
-    const cooldownEnds = robberData.lastRobberyAt.getTime() + ROBBERY_COOLDOWN_MS;
-    if (now < cooldownEnds) {
-      return { success: false, error: "cooldown actif", cooldownEnds };
-    }
-  }
-
-  // Vérifier qu'on a assez pour risquer
-  if (robberBalance < 5) {
-    return { success: false, error: "minimum 5 euros pour braquer antibank" };
-  }
-
   // Récupérer les stats d'ANTIBANK
   const antibankStats = await getAntibankStats();
   
@@ -338,8 +364,38 @@ export async function attemptAntibankRobbery(): Promise<RobberyResult> {
     return { success: false, error: "antibank n'a pas assez (minimum 10 euros)" };
   }
 
-  // Calcul des chances: 20% de base (très risqué!)
-  const successChance = 20;
+  // Déduire les frais d'entrée (100€)
+  const entryFee = HEIST_CONFIG.ENTRY_FEE;
+  
+  // Vérifier les items requis et optionnels
+  const inventory = await prisma.inventoryItem.findMany({
+    where: { 
+      userId: session.user.id,
+      itemId: { in: ["pied_de_biche", "kit_crochetage", "gilet_pare_balles", "vpn"] },
+      charges: { not: 0 },
+    },
+    select: { id: true, itemId: true, charges: true, expiresAt: true },
+  });
+
+  const hasItem = (itemId: string) => {
+    const item = inventory.find((i: { itemId: string; expiresAt: Date | null; charges: number }) => i.itemId === itemId);
+    if (!item) return false;
+    if (item.expiresAt && item.expiresAt < new Date()) return false;
+    return item.charges !== 0;
+  };
+
+  if (!hasItem("pied_de_biche")) {
+    return { success: false, error: "tu as besoin d'un pied-de-biche" };
+  }
+  if (!hasItem("kit_crochetage")) {
+    return { success: false, error: "tu as besoin d'un kit de crochetage" };
+  }
+
+  // Calcul des stats finales
+  const { finalStats, bonuses } = heistProgress;
+  const successChance = finalStats.successChance;
+  const treasuryStealPercent = finalStats.treasurySteal;
+  const failLossPercent = finalStats.failLoss;
   
   // Lancer le dé
   const roll = Math.floor(Math.random() * 100) + 1;
@@ -348,50 +404,81 @@ export async function attemptAntibankRobbery(): Promise<RobberyResult> {
   let amount: number;
   const nowDate = new Date();
 
+  // Déduire les frais d'entrée d'abord
+  await prisma.$executeRaw`
+    UPDATE "User" SET balance = balance - ${entryFee}
+    WHERE id = ${session.user.id}
+  `;
+
+  await prisma.transaction.create({
+    data: {
+      userId: session.user.id,
+      type: "antibank_heist_fee",
+      amount: new Prisma.Decimal(-entryFee),
+      description: `frais d'entree braquage ANTIBANK`
+    }
+  });
+
+  // Consommer les items requis
+  for (const item of inventory) {
+    if (item.itemId === "pied_de_biche" || item.itemId === "kit_crochetage") {
+      if (item.charges > 0) {
+        await prisma.inventoryItem.update({
+          where: { id: item.id },
+          data: { charges: { decrement: 1 } },
+        });
+      }
+    }
+  }
+
   if (robberySuccess) {
-    // Succès! Vole 5% du trésor d'ANTIBANK
-    const stealAmount = antibankStats.maxSteal;
-    const { newBalance } = await removeFromAntibank(stealAmount);
+    // Succès! Vole X% du trésor d'ANTIBANK
+    const stealAmount = Math.floor(antibankStats.balance * treasuryStealPercent) / 100;
+    await removeFromAntibank(stealAmount);
     amount = stealAmount;
 
     // Ajouter au braqueur
     await prisma.$executeRaw`
-      UPDATE "User" SET balance = balance + ${stealAmount}, "lastRobberyAt" = ${nowDate}
+      UPDATE "User" SET balance = balance + ${stealAmount}
       WHERE id = ${session.user.id}
     `;
 
     await prisma.transaction.create({
       data: {
         userId: session.user.id,
-        type: "antibank_robbery_win",
+        type: "antibank_heist_win",
         amount: new Prisma.Decimal(stealAmount),
-        description: `braquage reussi sur ANTIBANK CORP`
+        description: `braquage ANTIBANK reussi! (${treasuryStealPercent}% du tresor)`
       }
     });
 
   } else {
-    // Échec! Perd 80% de sa balance
-    const penalty = Math.floor(robberBalance * 0.80 * 100) / 100;
+    // Échec! Perd X% de sa balance restante (après frais)
+    const balanceAfterFee = robberBalance - entryFee;
+    const penalty = Math.floor(balanceAfterFee * failLossPercent) / 100;
     amount = -penalty;
 
     await prisma.$executeRaw`
-      UPDATE "User" SET balance = balance - ${penalty}, "lastRobberyAt" = ${nowDate}
+      UPDATE "User" SET balance = balance - ${penalty}
       WHERE id = ${session.user.id}
     `;
 
-    // L'argent perdu va à ANTIBANK (ajout via import)
-    const { addToAntibank } = await import("@/lib/antibank-corp");
-    await addToAntibank(penalty, `penalite braquage rate de ${robberData.discordUsername}`);
+    // L'argent perdu va à ANTIBANK
+    await addToAntibank(penalty, `penalite heist rate de ${robberData.discordUsername}`);
 
     await prisma.transaction.create({
       data: {
         userId: session.user.id,
-        type: "antibank_robbery_fail",
+        type: "antibank_heist_fail",
         amount: new Prisma.Decimal(-penalty),
-        description: `braquage rate sur ANTIBANK CORP - penalite 80%`
+        description: `braquage ANTIBANK rate - penalite ${failLossPercent}%`
       }
     });
   }
+
+  // Enregistrer la tentative et reset les boosters
+  await recordHeistAttempt(session.user.id, robberySuccess);
+  await resetHeistBoosters(session.user.id);
 
   return {
     success: true,
@@ -405,22 +492,34 @@ export async function attemptAntibankRobbery(): Promise<RobberyResult> {
   };
 }
 
-// Récupérer les infos sur ANTIBANK pour l'affichage
+// Récupérer les infos sur ANTIBANK pour l'affichage (utilise le système de quête)
 export async function getAntibankRobberyInfo(): Promise<{
   canRob: boolean;
   balance: number;
   maxSteal: number;
   riskPercent: number;
   successChance: number;
+  entryFee: number;
+  heistProgress: Awaited<ReturnType<typeof getHeistProgress>>;
 }> {
   const stats = await getAntibankStats();
+  const heistProgress = await getHeistProgress();
+  
+  // Stats finales basées sur la progression
+  const finalStats = heistProgress?.finalStats || {
+    successChance: HEIST_CONFIG.BASE_SUCCESS_CHANCE,
+    treasurySteal: HEIST_CONFIG.BASE_TREASURY_STEAL,
+    failLoss: HEIST_CONFIG.BASE_FAIL_LOSS,
+  };
   
   return {
-    canRob: stats.canBeRobbed,
+    canRob: stats.canBeRobbed && (heistProgress?.canAttemptHeist || false),
     balance: stats.balance,
-    maxSteal: stats.maxSteal,
-    riskPercent: 80, // 80% de perte si échec
-    successChance: 20, // 20% de chances
+    maxSteal: Math.floor(stats.balance * finalStats.treasurySteal) / 100,
+    riskPercent: finalStats.failLoss,
+    successChance: finalStats.successChance,
+    entryFee: HEIST_CONFIG.ENTRY_FEE,
+    heistProgress,
   };
 }
 

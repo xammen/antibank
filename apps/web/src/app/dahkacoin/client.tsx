@@ -328,31 +328,15 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
     .slice(0, 4);
 
   return (
-    <div className="w-full flex gap-8 animate-fade-in">
-      {/* Phase Guide - Left sidebar */}
-      <div className="hidden lg:block w-40 flex-shrink-0 text-[0.55rem] text-[var(--text-muted)] space-y-2 pt-12 opacity-50 hover:opacity-80 transition-opacity">
-        <p className="text-[var(--text)] text-[0.6rem] mb-3 uppercase tracking-widest">cycles</p>
-        <div className="space-y-2">
-          <p><span className="text-[var(--text)]">accumulation</span><br/>1-3min · calme, acheter</p>
-          <p><span className="text-green-400">hausse</span><br/>45s-1.5min · ça monte</p>
-          <p><span className="text-green-500">euphorie</span><br/>20-45s · moon, vendre vite</p>
-          <p><span className="text-orange-400">distribution</span><br/>1-2min · instable</p>
-          <p><span className="text-red-400">baisse</span><br/>1.5-2.5min · descente</p>
-          <p><span className="text-red-500">capitulation</span><br/>2-4min · panique, opportunité</p>
-          <p><span className="text-blue-400">récupération</span><br/>1.5-3min · ça repart</p>
-        </div>
-      </div>
-
-      {/* Main content */}
-      <div className="w-full max-w-[500px] space-y-6">
-        {/* Header */}
-        <header className="flex items-center justify-between border-b border-[var(--line)] pb-4">
-          <Link href="/dashboard" className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-sm">
-            ← retour
-          </Link>
-          <h1 className="text-[0.85rem] uppercase tracking-widest">dahkacoin</h1>
-          <div className="w-16" />
-        </header>
+    <div className="w-full max-w-[500px] space-y-6 animate-fade-in">
+      {/* Header */}
+      <header className="flex items-center justify-between border-b border-[var(--line)] pb-4">
+        <Link href="/dashboard" className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-sm">
+          ← retour
+        </Link>
+        <h1 className="text-[0.85rem] uppercase tracking-widest">dahkacoin</h1>
+        <div className="w-16" />
+      </header>
 
       {/* Event Banner */}
       {activeEvent !== 'none' && (
@@ -488,7 +472,18 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
       </div>
 
       {/* Probabilities */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 relative">
+        {/* Phase Guide - positioned to the left */}
+        <div className="hidden xl:block absolute right-full mr-4 top-0 w-36 text-[0.5rem] text-[var(--text-muted)] space-y-1.5 opacity-40">
+          <p><span className="text-[var(--text)]">accumulation</span> 1-3min · calme</p>
+          <p><span className="text-green-400">hausse</span> 45s-1.5min · monte</p>
+          <p><span className="text-green-500">euphorie</span> 20-45s · vendre vite</p>
+          <p><span className="text-orange-400">distribution</span> 1-2min · instable</p>
+          <p><span className="text-red-400">baisse</span> 1.5-2.5min · descente</p>
+          <p><span className="text-red-500">capitulation</span> 2-4min · opportunité</p>
+          <p><span className="text-blue-400">récupération</span> 1.5-3min · repart</p>
+        </div>
+        
         {/* Next Phase Probabilities */}
         <div className="border border-[var(--line)] p-3 bg-[rgba(255,255,255,0.01)]">
           <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">prochaine phase</p>
@@ -664,8 +659,6 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
             ))}
           </div>
         )}
-      </div>
-
       </div>
     </div>
   );
