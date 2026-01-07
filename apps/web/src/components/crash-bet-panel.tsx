@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect, useRef } from "react";
-import { placeCrashBet, cashOutCrash, getUserCrashHistory } from "@/actions/crash";
+import { placeCrashBet, getUserCrashHistory } from "@/actions/crash";
 import { useBalance } from "@/hooks/use-balance";
 
 interface CrashBetPanelProps {
@@ -15,6 +15,7 @@ interface CrashBetPanelProps {
   };
   currentMultiplier: number;
   userBalance: string;
+  onCashOut: () => Promise<{ success: boolean; multiplier?: number; profit?: number; newBalance?: number; error?: string }>;
 }
 
 interface BetHistoryEntry {
@@ -30,6 +31,7 @@ export function CrashBetPanel({
   userBet,
   currentMultiplier,
   userBalance,
+  onCashOut,
 }: CrashBetPanelProps) {
   const [betAmount, setBetAmount] = useState("1");
   const [autoCashoutAt, setAutoCashoutAt] = useState("");
@@ -62,7 +64,7 @@ export function CrashBetPanel({
       const target = parseFloat(autoCashoutAt);
       if (!isNaN(target) && target > 1 && currentMultiplier >= target) {
         autoCashoutTriggered.current = true;
-        cashOutCrash().then((result) => {
+        onCashOut().then((result) => {
           if (result.success) {
             setSuccess(`auto x${result.multiplier?.toFixed(2)} (+${result.profit?.toFixed(2)})`);
             if (result.newBalance !== undefined) {
@@ -72,7 +74,7 @@ export function CrashBetPanel({
         });
       }
     }
-  }, [gameState, userBet, currentMultiplier, autoCashoutAt, setBalance]);
+  }, [gameState, userBet, currentMultiplier, autoCashoutAt, setBalance, onCashOut]);
 
   // Reset auto-cashout trigger when game ends
   useEffect(() => {
@@ -125,7 +127,7 @@ export function CrashBetPanel({
     
     // Fire and forget - server will confirm
     startTransition(async () => {
-      const result = await cashOutCrash();
+      const result = await onCashOut();
       if (!result.success) {
         // Rollback on error
         setError(result.error || "erreur cashout");

@@ -355,7 +355,7 @@ class CrashGameManager {
     }
   }
 
-  async cashOut(userId: string): Promise<{ success: boolean; multiplier?: number; profit?: number; bet?: number }> {
+  async cashOut(userId: string, clientMultiplier?: number): Promise<{ success: boolean; multiplier?: number; profit?: number; bet?: number }> {
     // Trouver le jeu en cours
     const game = await prisma.crashGame.findFirst({
       where: { status: "running" },
@@ -379,14 +379,30 @@ class CrashGameManager {
       return { success: false };
     }
 
-    const startTime = game.startedAt?.getTime() || (game.createdAt.getTime() + COUNTDOWN_MS);
-    const elapsed = Date.now() - startTime;
-    const multiplier = calculateMultiplier(elapsed);
     const crashPoint = Number(game.crashPoint);
 
-    // Vérifier qu'on n'a pas déjà crashé
-    const crashTimeMs = timeToMultiplier(crashPoint);
-    if (elapsed >= crashTimeMs) {
+    // Utiliser le multiplicateur client s'il est fourni et valide
+    // Sinon calculer depuis le serveur
+    let multiplier: number;
+    
+    if (clientMultiplier && clientMultiplier >= 1.00 && clientMultiplier < crashPoint) {
+      // Le client a envoyé un multiplicateur valide - l'utiliser
+      multiplier = clientMultiplier;
+    } else {
+      // Calculer depuis le serveur (fallback)
+      const startTime = game.startedAt?.getTime() || (game.createdAt.getTime() + COUNTDOWN_MS);
+      const elapsed = Date.now() - startTime;
+      multiplier = calculateMultiplier(elapsed);
+      
+      // Vérifier qu'on n'a pas déjà crashé
+      const crashTimeMs = timeToMultiplier(crashPoint);
+      if (elapsed >= crashTimeMs) {
+        return { success: false };
+      }
+    }
+
+    // S'assurer que le multiplier ne dépasse pas le crashPoint
+    if (multiplier >= crashPoint) {
       return { success: false };
     }
 

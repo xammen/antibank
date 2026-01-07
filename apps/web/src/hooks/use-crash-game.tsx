@@ -174,13 +174,14 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
   }, [fetchState]);
 
   const cashOut = useCallback(async () => {
-    const result = await cashOutCrash();
+    // Envoyer le multiplicateur local pour un timing précis
+    const result = await cashOutCrash(localMultiplier);
     if (result.success) {
       // Immediately refresh state
       await fetchState();
     }
     return result;
-  }, [fetchState]);
+  }, [fetchState, localMultiplier]);
 
   const voteSkip = useCallback(async () => {
     const result = await voteSkipCrash();

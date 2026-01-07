@@ -135,6 +135,7 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
                 userBet={userBet}
                 currentMultiplier={displayMultiplier}
                 userBalance={userBalance}
+                onCashOut={cashOut}
               />
             </div>
 
