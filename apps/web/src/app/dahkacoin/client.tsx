@@ -10,10 +10,12 @@ import {
   tickPrice,
 } from "@/actions/dahkacoin";
 
-interface PricePoint {
-  price: number;
-  createdAt: Date;
-}
+// ============================================
+// TYPES
+// ============================================
+
+type MarketPhase = 'accumulation' | 'markup' | 'euphoria' | 'distribution' | 'decline' | 'capitulation' | 'recovery';
+type MarketEvent = 'none' | 'whale_pump' | 'whale_dump' | 'flash_crash' | 'mega_pump' | 'fomo_wave' | 'panic_wave' | 'short_squeeze' | 'rug_pull' | 'dead_cat_bounce' | 'calm_before_storm' | 'volatility_storm' | 'price_freeze' | 'momentum_flip' | 'mystery_whale' | 'double_or_nothing' | 'golden_hour';
 
 interface DCTransaction {
   id: string;
@@ -24,417 +26,110 @@ interface DCTransaction {
   createdAt: Date;
 }
 
-interface DahkaCoinClientProps {
-  userId: string;
+// ============================================
+// CONFIG
+// ============================================
+
+const PHASE_DISPLAY: Record<MarketPhase, { label: string; risk: string }> = {
+  accumulation: { label: 'accumulation', risk: 'low' },
+  markup: { label: 'hausse', risk: 'medium' },
+  euphoria: { label: 'euphorie', risk: 'extreme' },
+  distribution: { label: 'distribution', risk: 'high' },
+  decline: { label: 'baisse', risk: 'medium' },
+  capitulation: { label: 'capitulation', risk: 'extreme' },
+  recovery: { label: 'recuperation', risk: 'low' },
+};
+
+const EVENT_DISPLAY: Record<MarketEvent, { label: string; type: 'pump' | 'crash' | 'chaos' | 'none' }> = {
+  none: { label: '', type: 'none' },
+  whale_pump: { label: 'whale pump', type: 'pump' },
+  whale_dump: { label: 'whale dump', type: 'crash' },
+  flash_crash: { label: 'flash crash', type: 'crash' },
+  mega_pump: { label: 'mega pump', type: 'pump' },
+  fomo_wave: { label: 'fomo', type: 'pump' },
+  panic_wave: { label: 'panic', type: 'crash' },
+  short_squeeze: { label: 'short squeeze', type: 'pump' },
+  rug_pull: { label: 'rug pull', type: 'crash' },
+  dead_cat_bounce: { label: 'dead cat bounce', type: 'chaos' },
+  calm_before_storm: { label: 'calm before storm', type: 'chaos' },
+  volatility_storm: { label: 'volatility storm', type: 'chaos' },
+  price_freeze: { label: 'price freeze', type: 'chaos' },
+  momentum_flip: { label: 'momentum flip', type: 'chaos' },
+  mystery_whale: { label: 'mystery whale', type: 'chaos' },
+  double_or_nothing: { label: 'double or nothing', type: 'chaos' },
+  golden_hour: { label: 'golden hour', type: 'pump' },
+};
+
+// ============================================
+// COMPONENTS
+// ============================================
+
+function formatTime(seconds: number): string {
+  if (seconds < 60) return `${Math.floor(seconds)}s`;
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}m${secs.toString().padStart(2, '0')}s`;
 }
 
-// Phase cycle order (for timeline)
-const PHASE_CYCLE = [
-  'accumulation',
-  'markup', 
-  'euphoria',
-  'distribution',
-  'decline',
-  'capitulation',
-  'recovery',
-] as const;
-
-type MarketPhase = typeof PHASE_CYCLE[number];
-
-// Phase config
-const PHASE_CONFIG: Record<MarketPhase, { 
-  emoji: string; 
-  name: string; 
-  color: string;
-  bgColor: string;
-  description: string;
-  risk: 'low' | 'medium' | 'high' | 'extreme';
-}> = {
-  accumulation: { 
-    emoji: '📦', 
-    name: 'accumulation', 
-    color: 'text-gray-400',
-    bgColor: 'bg-gray-500',
-    description: 'marche calme, bon moment pour acheter',
-    risk: 'low',
-  },
-  markup: { 
-    emoji: '📈', 
-    name: 'hausse', 
-    color: 'text-green-400',
-    bgColor: 'bg-green-500',
-    description: 'tendance haussiere, momentum positif',
-    risk: 'medium',
-  },
-  euphoria: { 
-    emoji: '🚀', 
-    name: 'EUPHORIE', 
-    color: 'text-green-300',
-    bgColor: 'bg-green-400',
-    description: 'MOON! gains extremes possibles',
-    risk: 'extreme',
-  },
-  distribution: { 
-    emoji: '🎭', 
-    name: 'distribution', 
-    color: 'text-yellow-400',
-    bgColor: 'bg-yellow-500',
-    description: 'top en formation, attention!',
-    risk: 'high',
-  },
-  decline: { 
-    emoji: '📉', 
-    name: 'baisse', 
-    color: 'text-red-400',
-    bgColor: 'bg-red-500',
-    description: 'tendance baissiere, prudence',
-    risk: 'medium',
-  },
-  capitulation: { 
-    emoji: '💀', 
-    name: 'CAPITULATION', 
-    color: 'text-red-300',
-    bgColor: 'bg-red-400',
-    description: 'CRASH! pertes extremes possibles',
-    risk: 'extreme',
-  },
-  recovery: { 
-    emoji: '🌱', 
-    name: 'recuperation', 
-    color: 'text-blue-400',
-    bgColor: 'bg-blue-500',
-    description: 'rebond en cours, opportunite?',
-    risk: 'low',
-  },
-};
-
-// Phase transitions probabilities
-const PHASE_TRANSITIONS: Record<MarketPhase, Partial<Record<MarketPhase, number>>> = {
-  accumulation: { markup: 0.60, decline: 0.25, accumulation: 0.15 },
-  markup: { euphoria: 0.50, distribution: 0.30, markup: 0.20 },
-  euphoria: { distribution: 0.70, capitulation: 0.20, euphoria: 0.10 },
-  distribution: { decline: 0.50, capitulation: 0.30, markup: 0.15, distribution: 0.05 },
-  decline: { capitulation: 0.40, recovery: 0.35, decline: 0.25 },
-  capitulation: { recovery: 0.80, capitulation: 0.15, accumulation: 0.05 },
-  recovery: { accumulation: 0.60, markup: 0.30, decline: 0.10 },
-};
-
-// Event probabilities per phase (base probabilities * multipliers)
-const EVENT_BASE_PROBS = {
-  pump: 0.0015,   // whale_pump + mega_pump + fomo + short_squeeze + golden_hour
-  crash: 0.0012,  // whale_dump + flash_crash + panic + rug_pull
-  chaos: 0.001,   // calm_before_storm + volatility_storm + double_or_nothing + mystery
-};
-
-const PHASE_EVENT_MULTIPLIERS: Record<MarketPhase, { pump: number; crash: number; chaos: number }> = {
-  accumulation: { pump: 1.5, crash: 0.3, chaos: 1.5 },
-  markup: { pump: 2.5, crash: 0.5, chaos: 1.0 },
-  euphoria: { pump: 0.5, crash: 3.0, chaos: 2.0 },  // RUG PULL danger!
-  distribution: { pump: 0.5, crash: 2.0, chaos: 1.5 },
-  decline: { pump: 0.5, crash: 1.5, chaos: 1.5 },
-  capitulation: { pump: 2.0, crash: 0.3, chaos: 2.0 },  // Short squeeze + double or nothing
-  recovery: { pump: 1.5, crash: 0.5, chaos: 1.0 },
-};
-
-// Animated price display
-function AnimatedPrice({ value, momentum }: { value: number; momentum: number }) {
-  const [displayValue, setDisplayValue] = useState(value);
-  const [isIncreasing, setIsIncreasing] = useState(false);
-  const [isDecreasing, setIsDecreasing] = useState(false);
-  const prevValue = useRef(value);
-
-  useEffect(() => {
-    if (value !== prevValue.current) {
-      setIsIncreasing(value > prevValue.current);
-      setIsDecreasing(value < prevValue.current);
-      
-      const diff = value - prevValue.current;
-      const steps = 10;
-      const stepValue = diff / steps;
-      let current = prevValue.current;
-      let step = 0;
-
-      const animate = () => {
-        step++;
-        current += stepValue;
-        if (step >= steps) {
-          setDisplayValue(value);
-          prevValue.current = value;
-          setTimeout(() => {
-            setIsIncreasing(false);
-            setIsDecreasing(false);
-          }, 200);
-        } else {
-          setDisplayValue(current);
-          requestAnimationFrame(animate);
-        }
-      };
-      requestAnimationFrame(animate);
-    }
-  }, [value]);
-
-  const getTrendColor = () => {
-    if (isIncreasing) return "text-green-400";
-    if (isDecreasing) return "text-red-400";
-    if (momentum > 0.3) return "text-green-400";
-    if (momentum < -0.3) return "text-red-400";
-    return "text-gray-400";
-  };
-
-  const getTrendIcon = () => {
-    if (momentum > 0.5) return "↑↑";
-    if (momentum > 0.2) return "↑";
-    if (momentum < -0.5) return "↓↓";
-    if (momentum < -0.2) return "↓";
-    return "→";
-  };
-
-  return (
-    <span className={`text-3xl font-light transition-colors duration-200 ${getTrendColor()}`}>
-      {displayValue.toFixed(4)}€ {getTrendIcon()}
-    </span>
-  );
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(0)}%`;
 }
 
-// Phase Timeline Component
-function PhaseTimeline({ 
-  currentPhase, 
-  phaseProgress,
-  momentum,
-}: { 
-  currentPhase: MarketPhase; 
-  phaseProgress: number;
-  momentum: number;
-}) {
-  const currentIndex = PHASE_CYCLE.indexOf(currentPhase);
-  const config = PHASE_CONFIG[currentPhase];
-  const transitions = PHASE_TRANSITIONS[currentPhase];
-  const eventMultipliers = PHASE_EVENT_MULTIPLIERS[currentPhase];
+export function DahkaCoinClient({ userId }: { userId: string }) {
+  // State
+  const [price, setPrice] = useState(1);
+  const [phase, setPhase] = useState<MarketPhase>('accumulation');
+  const [phaseProgress, setPhaseProgress] = useState(0);
+  const [phaseTimeLeft, setPhaseTimeLeft] = useState(0);
+  const [momentum, setMomentum] = useState(0);
+  const [volatility, setVolatility] = useState('normal');
+  const [activeEvent, setActiveEvent] = useState<MarketEvent>('none');
+  const [eventProgress, setEventProgress] = useState(0);
+  const [eventTimeLeft, setEventTimeLeft] = useState(0);
+  const [nextEventIn, setNextEventIn] = useState(0);
+  const [nextPhaseProbs, setNextPhaseProbs] = useState<Record<MarketPhase, number>>({} as Record<MarketPhase, number>);
+  const [eventProbs, setEventProbs] = useState({ pump: 0, crash: 0, chaos: 0 });
+  const [allTimeHigh, setAllTimeHigh] = useState(1);
+  const [allTimeLow, setAllTimeLow] = useState(1);
   
-  // Calculate event probabilities for next 60 seconds
-  const pumpChance = Math.min(99, Math.round(EVENT_BASE_PROBS.pump * eventMultipliers.pump * 60 * 100));
-  const crashChance = Math.min(99, Math.round(EVENT_BASE_PROBS.crash * eventMultipliers.crash * 60 * 100));
-  const chaosChance = Math.min(99, Math.round(EVENT_BASE_PROBS.chaos * eventMultipliers.chaos * 60 * 100));
-  
-  // Get most likely next phases
-  const sortedTransitions = Object.entries(transitions)
-    .sort(([, a], [, b]) => (b || 0) - (a || 0))
-    .slice(0, 3);
-
-  // Safe progress value
-  const safeProgress = isNaN(phaseProgress) ? 0 : Math.max(0, Math.min(1, phaseProgress));
-
-  return (
-    <div className="border border-[var(--line)] p-4 space-y-4">
-      {/* Current phase header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl">{config.emoji}</span>
-          <div>
-            <p className={`font-medium ${config.color}`}>{config.name}</p>
-            <p className="text-xs text-[var(--text-muted)]">{config.description}</p>
-          </div>
-        </div>
-        <div className={`px-2 py-1 text-xs rounded ${
-          config.risk === 'low' ? 'bg-green-500/20 text-green-400' :
-          config.risk === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
-          config.risk === 'high' ? 'bg-orange-500/20 text-orange-400' :
-          'bg-red-500/20 text-red-400 animate-pulse'
-        }`}>
-          risque {config.risk === 'extreme' ? 'EXTREME' : config.risk}
-        </div>
-      </div>
-
-      {/* Phase cycle timeline */}
-      <div className="relative">
-        <div className="flex gap-1">
-          {PHASE_CYCLE.map((phase, idx) => {
-            const phaseConfig = PHASE_CONFIG[phase];
-            const isCurrentPhase = idx === currentIndex;
-            const isPast = idx < currentIndex;
-            
-            return (
-              <div 
-                key={phase}
-                className="flex-1 relative group"
-              >
-                {/* Phase bar */}
-                <div className={`h-8 rounded-sm relative overflow-hidden transition-all ${
-                  isCurrentPhase 
-                    ? `${phaseConfig.bgColor} ring-2 ring-white/50` 
-                    : isPast 
-                      ? 'bg-gray-700' 
-                      : 'bg-gray-800'
-                }`}>
-                  {/* Progress fill for current phase */}
-                  {isCurrentPhase && (
-                    <div 
-                      className="absolute inset-y-0 left-0 bg-white/30 transition-all duration-1000"
-                      style={{ width: `${safeProgress * 100}%` }}
-                    />
-                  )}
-                  {/* Phase emoji centered */}
-                  <div className="absolute inset-0 flex items-center justify-center text-sm">
-                    {phaseConfig.emoji}
-                  </div>
-                </div>
-                
-                {/* Tooltip on hover */}
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black border border-[var(--line)] text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                  {phaseConfig.name}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        
-        {/* Progress percentage under current phase */}
-        <div className="flex gap-1 mt-1">
-          {PHASE_CYCLE.map((phase, idx) => (
-            <div key={phase} className="flex-1 text-center">
-              {idx === currentIndex && (
-                <span className="text-xs text-[var(--text-muted)]">
-                  {Math.round(safeProgress * 100)}%
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Next phase probabilities */}
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <p className="text-xs text-[var(--text-muted)] mb-2">prochaine phase probable</p>
-          <div className="space-y-1">
-            {sortedTransitions.map(([nextPhase, probability]) => {
-              const nextConfig = PHASE_CONFIG[nextPhase as MarketPhase];
-              return (
-                <div key={nextPhase} className="flex items-center gap-2">
-                  <span>{nextConfig.emoji}</span>
-                  <div className="flex-1 h-2 bg-gray-800 rounded overflow-hidden">
-                    <div 
-                      className={`h-full ${nextConfig.bgColor} opacity-70`}
-                      style={{ width: `${(probability || 0) * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-xs text-[var(--text-muted)] w-8">
-                    {Math.round((probability || 0) * 100)}%
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Event chances */}
-        <div>
-          <p className="text-xs text-[var(--text-muted)] mb-2">chance d'event (60s)</p>
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <span className="text-green-400 text-sm">🚀</span>
-              <div className="flex-1 h-2 bg-gray-800 rounded overflow-hidden">
-                <div 
-                  className="h-full bg-green-500"
-                  style={{ width: `${pumpChance}%` }}
-                />
-              </div>
-              <span className="text-xs text-green-400 w-8">{pumpChance}%</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-red-400 text-sm">💥</span>
-              <div className="flex-1 h-2 bg-gray-800 rounded overflow-hidden">
-                <div 
-                  className="h-full bg-red-500"
-                  style={{ width: `${crashChance}%` }}
-                />
-              </div>
-              <span className="text-xs text-red-400 w-8">{crashChance}%</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-purple-400 text-sm">🎲</span>
-              <div className="flex-1 h-2 bg-gray-800 rounded overflow-hidden">
-                <div 
-                  className="h-full bg-purple-500"
-                  style={{ width: `${chaosChance}%` }}
-                />
-              </div>
-              <span className="text-xs text-purple-400 w-8">{chaosChance}%</span>
-            </div>
-          </div>
-          <p className="text-[10px] text-[var(--text-muted)] mt-1">
-            🚀 pump · 💥 crash · 🎲 chaos
-          </p>
-        </div>
-      </div>
-
-      {/* Momentum indicator */}
-      <div>
-        <p className="text-xs text-[var(--text-muted)] mb-1">momentum</p>
-        <div className="h-3 bg-gray-800 rounded overflow-hidden relative">
-          {/* Center marker */}
-          <div className="absolute inset-y-0 left-1/2 w-px bg-gray-600" />
-          {/* Momentum bar */}
-          <div 
-            className={`absolute inset-y-0 transition-all duration-300 ${
-              momentum >= 0 ? 'bg-green-500 left-1/2' : 'bg-red-500 right-1/2'
-            }`}
-            style={{ 
-              width: `${Math.abs(momentum) * 50}%`,
-              [momentum >= 0 ? 'left' : 'right']: '50%'
-            }}
-          />
-        </div>
-        <div className="flex justify-between text-xs text-[var(--text-muted)] mt-1">
-          <span>bearish</span>
-          <span className={momentum > 0.3 ? 'text-green-400' : momentum < -0.3 ? 'text-red-400' : ''}>
-            {momentum > 0 ? '+' : ''}{(momentum * 100).toFixed(0)}%
-          </span>
-          <span>bullish</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
-  const [currentPrice, setCurrentPrice] = useState<number>(1);
-  const [phase, setPhase] = useState<MarketPhase>("accumulation");
-  const [phaseProgress, setPhaseProgress] = useState<number>(0);
-  const [volatility, setVolatility] = useState<string>("normal");
-  const [momentum, setMomentum] = useState<number>(0);
-  const [activeEvent, setActiveEvent] = useState<string>("none");
-  const [eventIntensity, setEventIntensity] = useState<number>(0);
-  const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
+  const [priceHistory, setPriceHistory] = useState<{ price: number; createdAt: Date }[]>([]);
   const [realtimePrices, setRealtimePrices] = useState<{ price: number; time: number }[]>([]);
-  const [userDC, setUserDC] = useState<number>(0);
+  const [userDC, setUserDC] = useState(0);
   const [userAvgPrice, setUserAvgPrice] = useState<number | null>(null);
   const [userProfit, setUserProfit] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<DCTransaction[]>([]);
+  
   const [isLoading, setIsLoading] = useState(true);
   const [period, setPeriod] = useState<"1h" | "24h" | "7d">("1h");
-  
   const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
   const [tradeAmount, setTradeAmount] = useState("");
   const [isTrading, setIsTrading] = useState(false);
   const [tradeResult, setTradeResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const prevPrice = useRef(price);
 
-  // Initial data load
+  // Load data
   const loadData = useCallback(async () => {
     const [state, txs] = await Promise.all([
       getDCState(period),
       getDCTransactions(10)
     ]);
 
-    setCurrentPrice(state.currentPrice);
-    setPhase(state.phase as MarketPhase);
-    setPhaseProgress(state.phaseProgress || 0);
-    setVolatility(state.volatility);
+    setPrice(state.currentPrice);
+    setPhase(state.phase);
+    setPhaseProgress(state.phaseProgress);
+    setPhaseTimeLeft(state.phaseTimeLeft);
     setMomentum(state.momentum);
+    setVolatility(state.volatility);
     setActiveEvent(state.activeEvent);
-    setEventIntensity(state.eventIntensity);
+    setEventProgress(state.eventProgress);
+    setEventTimeLeft(state.eventTimeLeft);
+    setNextEventIn(state.nextEventIn);
+    setNextPhaseProbs(state.nextPhaseProbs);
+    setEventProbs(state.eventProbs);
+    setAllTimeHigh(state.allTimeHigh);
+    setAllTimeLow(state.allTimeLow);
     setPriceHistory(state.priceHistory);
     setUserDC(state.userDC);
     setUserAvgPrice(state.userAvgPrice);
@@ -442,7 +137,6 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
     setTransactions(txs);
     setIsLoading(false);
 
-    // Initialize realtime prices with last 60 points from history
     const now = Date.now();
     const recentHistory = state.priceHistory.slice(-60).map((p, i) => ({
       price: p.price,
@@ -453,55 +147,54 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
     }
   }, [period]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  // Real-time price updates every second
+  // Real-time updates
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
         const result = await tickPrice();
         
-        setCurrentPrice(result.price);
-        setPhase(result.phase as MarketPhase);
-        setPhaseProgress(result.phaseProgress || 0);
-        setVolatility(result.volatility);
+        prevPrice.current = price;
+        setPrice(result.price);
+        setPhase(result.phase);
+        setPhaseProgress(result.phaseProgress);
+        setPhaseTimeLeft(result.phaseTimeLeft);
         setMomentum(result.momentum);
+        setVolatility(result.volatility);
         setActiveEvent(result.activeEvent);
-        setEventIntensity(result.eventIntensity);
+        setEventProgress(result.eventProgress);
+        setEventTimeLeft(result.eventTimeLeft);
+        setNextEventIn(result.nextEventIn);
+        setNextPhaseProbs(result.nextPhaseProbs);
+        setEventProbs(result.eventProbs);
+        setAllTimeHigh(result.allTimeHigh);
+        setAllTimeLow(result.allTimeLow);
 
-        // Add to realtime prices (keep last 120 points = 2 minutes)
         setRealtimePrices(prev => {
           const newPrices = [...prev, { price: result.price, time: Date.now() }];
           return newPrices.slice(-120);
         });
 
-        // Update profit
         if (userAvgPrice !== null && userDC > 0) {
           setUserProfit((result.price - userAvgPrice) * userDC);
         }
-      } catch {
-        // Silently fail
-      }
+      } catch {}
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [userAvgPrice, userDC]);
+  }, [price, userAvgPrice, userDC]);
 
-  // Reload full data every 30 seconds
+  // Reload every 30s
   useEffect(() => {
-    const interval = setInterval(() => {
-      loadData();
-    }, 30000);
+    const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
 
-  // Draw chart with smooth animation
+  // Draw chart
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
@@ -509,20 +202,18 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
     const height = canvas.height;
     const padding = 40;
 
-    // Clear
     ctx.fillStyle = "#0a0a0a";
     ctx.fillRect(0, 0, width, height);
 
-    // Use realtime prices for 1h view, historical for others
     const dataToUse = period === "1h" && realtimePrices.length > 10 
       ? realtimePrices.map(p => ({ price: p.price, createdAt: new Date(p.time) }))
       : priceHistory;
 
     if (dataToUse.length < 2) {
-      ctx.fillStyle = "#666";
-      ctx.font = "12px JetBrains Mono";
+      ctx.fillStyle = "#555";
+      ctx.font = "11px monospace";
       ctx.textAlign = "center";
-      ctx.fillText("en attente de donnees...", width / 2, height / 2);
+      ctx.fillText("waiting for data...", width / 2, height / 2);
       return;
     }
 
@@ -531,8 +222,8 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
     const maxPrice = Math.max(...prices) * 1.02;
     const priceRange = maxPrice - minPrice || 0.01;
 
-    // Draw grid
-    ctx.strokeStyle = "#222";
+    // Grid
+    ctx.strokeStyle = "#1a1a1a";
     ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
       const y = padding + (height - 2 * padding) * (i / 4);
@@ -541,97 +232,52 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       ctx.lineTo(width - padding, y);
       ctx.stroke();
 
-      const price = maxPrice - (priceRange * i / 4);
-      ctx.fillStyle = "#666";
-      ctx.font = "10px JetBrains Mono";
+      const p = maxPrice - (priceRange * i / 4);
+      ctx.fillStyle = "#444";
+      ctx.font = "9px monospace";
       ctx.textAlign = "right";
-      ctx.fillText(price.toFixed(4) + "€", padding - 5, y + 3);
+      ctx.fillText(p.toFixed(4), padding - 5, y + 3);
     }
 
-    // Draw gradient fill based on momentum
-    const gradient = ctx.createLinearGradient(0, padding, 0, height - padding);
-    if (momentum > 0.2) {
-      gradient.addColorStop(0, "rgba(74, 222, 128, 0.3)");
-      gradient.addColorStop(1, "rgba(74, 222, 128, 0)");
-    } else if (momentum < -0.2) {
-      gradient.addColorStop(0, "rgba(248, 113, 113, 0.3)");
-      gradient.addColorStop(1, "rgba(248, 113, 113, 0)");
-    } else {
-      gradient.addColorStop(0, "rgba(136, 136, 136, 0.2)");
-      gradient.addColorStop(1, "rgba(136, 136, 136, 0)");
-    }
-
-    // Draw filled area
+    // Line
+    ctx.strokeStyle = momentum > 0.1 ? "#4ade80" : momentum < -0.1 ? "#f87171" : "#666";
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
     dataToUse.forEach((point, i) => {
       const x = padding + (width - 2 * padding) * (i / (dataToUse.length - 1));
       const y = padding + (height - 2 * padding) * (1 - (point.price - minPrice) / priceRange);
-      
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    });
-    ctx.lineTo(width - padding, height - padding);
-    ctx.lineTo(padding, height - padding);
-    ctx.closePath();
-    ctx.fillStyle = gradient;
-    ctx.fill();
-
-    // Draw price line
-    ctx.strokeStyle = momentum > 0.2 ? "#4ade80" : momentum < -0.2 ? "#f87171" : "#888";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    dataToUse.forEach((point, i) => {
-      const x = padding + (width - 2 * padding) * (i / (dataToUse.length - 1));
-      const y = padding + (height - 2 * padding) * (1 - (point.price - minPrice) / priceRange);
-      
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     });
     ctx.stroke();
 
-    // Draw current price marker with glow
+    // Current point
     const lastPoint = dataToUse[dataToUse.length - 1];
     if (lastPoint) {
       const x = width - padding;
       const y = padding + (height - 2 * padding) * (1 - (lastPoint.price - minPrice) / priceRange);
-      
-      ctx.shadowColor = momentum > 0.2 ? "#4ade80" : momentum < -0.2 ? "#f87171" : "#888";
-      ctx.shadowBlur = 10;
-      
-      ctx.fillStyle = momentum > 0.2 ? "#4ade80" : momentum < -0.2 ? "#f87171" : "#888";
+      ctx.fillStyle = momentum > 0.1 ? "#4ade80" : momentum < -0.1 ? "#f87171" : "#666";
       ctx.beginPath();
-      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
       ctx.fill();
-      
-      ctx.shadowBlur = 0;
     }
 
-    // Draw avg buy price line
+    // Avg price line
     if (userAvgPrice !== null && userAvgPrice >= minPrice && userAvgPrice <= maxPrice) {
       const y = padding + (height - 2 * padding) * (1 - (userAvgPrice - minPrice) / priceRange);
       ctx.strokeStyle = "#fbbf24";
-      ctx.setLineDash([5, 5]);
+      ctx.setLineDash([3, 3]);
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(padding, y);
       ctx.lineTo(width - padding, y);
       ctx.stroke();
       ctx.setLineDash([]);
-      
-      ctx.fillStyle = "#fbbf24";
-      ctx.font = "10px JetBrains Mono";
-      ctx.textAlign = "left";
-      ctx.fillText("achat: " + userAvgPrice.toFixed(4) + "€", padding + 5, y - 5);
     }
 
   }, [priceHistory, realtimePrices, momentum, userAvgPrice, period]);
 
+  // Trade handler
   const handleTrade = async () => {
     if (isTrading || !tradeAmount) return;
     setIsTrading(true);
@@ -644,24 +290,17 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       return;
     }
 
-    let result;
-    if (tradeMode === "buy") {
-      result = await buyDahkaCoin(amount);
-    } else {
-      result = await sellDahkaCoin(amount);
-    }
+    const result = tradeMode === "buy" 
+      ? await buyDahkaCoin(amount)
+      : await sellDahkaCoin(amount);
 
     if (result.success) {
       const msg = tradeMode === "buy"
-        ? `achat de ${result.dcAmount?.toFixed(4)} DC pour ${result.euroAmount?.toFixed(2)}€`
-        : `vente de ${result.dcAmount?.toFixed(4)} DC pour ${result.euroAmount?.toFixed(2)}€`;
+        ? `+${result.dcAmount?.toFixed(4)} dc`
+        : `+${result.euroAmount?.toFixed(2)}eur`;
       setTradeResult({ success: true, message: msg });
       setTradeAmount("");
-      
-      if (result.newDCBalance !== undefined) {
-        setUserDC(result.newDCBalance);
-      }
-      
+      if (result.newDCBalance !== undefined) setUserDC(result.newDCBalance);
       loadData();
     } else {
       setTradeResult({ success: false, message: result.error || "erreur" });
@@ -670,152 +309,238 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
     setIsTrading(false);
   };
 
-  const getEventBanner = () => {
-    if (activeEvent === "none") return null;
-    
-    const events: Record<string, { text: string; color: string; description: string }> = {
-      // Market events
-      whale_pump: { text: "🐋 WHALE PUMP", color: "border-green-500 bg-green-500/10 text-green-400", description: "achat massif detecte" },
-      whale_dump: { text: "🐋 WHALE DUMP", color: "border-red-500 bg-red-500/10 text-red-400", description: "vente massive detectee" },
-      flash_crash: { text: "⚡ FLASH CRASH", color: "border-red-600 bg-red-600/10 text-red-300", description: "effondrement eclair" },
-      mega_pump: { text: "🚀 MEGA PUMP", color: "border-green-400 bg-green-400/10 text-green-300", description: "to the moon!" },
-      fomo_wave: { text: "🌊 FOMO WAVE", color: "border-green-500 bg-green-500/10 text-green-400", description: "tout le monde achete" },
-      panic_wave: { text: "😱 PANIQUE", color: "border-red-500 bg-red-500/10 text-red-400", description: "vente de panique" },
-      short_squeeze: { text: "🔥 SHORT SQUEEZE", color: "border-green-400 bg-green-400/10 text-green-300", description: "les shorts se font liquider" },
-      rug_pull: { text: "🧹 RUG PULL", color: "border-red-700 bg-red-700/20 text-red-200", description: "SCAM! tout s'effondre" },
-      dead_cat_bounce: { text: "🐱 DEAD CAT BOUNCE", color: "border-yellow-500 bg-yellow-500/10 text-yellow-400", description: "faux rebond... attention" },
-      // Volatility events
-      calm_before_storm: { text: "😶‍🌫️ CALME AVANT TEMPETE", color: "border-purple-500 bg-purple-500/10 text-purple-400", description: "trop calme... mefiance" },
-      volatility_storm: { text: "🌪️ TEMPETE", color: "border-orange-500 bg-orange-500/10 text-orange-400", description: "volatilite extreme" },
-      price_freeze: { text: "🧊 PRIX GELE", color: "border-cyan-500 bg-cyan-500/10 text-cyan-400", description: "prix bloque temporairement" },
-      // Timing events
-      phase_accelerator: { text: "⏩ ACCELERATION", color: "border-blue-500 bg-blue-500/10 text-blue-400", description: "phase acceleree" },
-      phase_skip: { text: "⏭️ SAUT DE PHASE", color: "border-purple-600 bg-purple-600/10 text-purple-300", description: "changement brutal" },
-      momentum_flip: { text: "🔄 RETOURNEMENT", color: "border-yellow-400 bg-yellow-400/10 text-yellow-300", description: "momentum inverse" },
-      // Special events
-      mystery_whale: { text: "🎭 BALEINE MYSTERE", color: "border-indigo-500 bg-indigo-500/10 text-indigo-400", description: "direction inconnue..." },
-      double_or_nothing: { text: "🎲 QUITTE OU DOUBLE", color: "border-pink-500 bg-pink-500/10 text-pink-400", description: "+100% ou -50%?" },
-      golden_hour: { text: "✨ HEURE DOREE", color: "border-yellow-400 bg-yellow-400/10 text-yellow-300", description: "gains doubles!" },
-    };
-    
-    const event = events[activeEvent];
-    if (!event) return null;
-    
-    return (
-      <div className={`p-4 border text-center ${event.color} ${activeEvent === 'rug_pull' || activeEvent === 'flash_crash' ? 'animate-pulse' : ''}`}>
-        <div className="text-lg font-medium">{event.text}</div>
-        <div className="text-sm opacity-80">{event.description}</div>
-        <div className="mt-1 h-1 bg-black/20 rounded overflow-hidden">
-          <div 
-            className="h-full bg-current transition-all duration-300"
-            style={{ width: `${eventIntensity * 100}%` }}
-          />
-        </div>
-      </div>
-    );
-  };
-
   if (isLoading) {
     return (
-      <div className="text-center">
-        <p className="text-[var(--text-muted)]">chargement...</p>
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <p className="text-[var(--text-muted)] text-sm">chargement...</p>
       </div>
     );
   }
 
+  const priceChange = prevPrice.current !== 0 ? (price - prevPrice.current) / prevPrice.current : 0;
+  const priceColor = priceChange > 0 ? "text-green-500" : priceChange < 0 ? "text-red-500" : "text-[var(--text)]";
+  const phaseDisplay = PHASE_DISPLAY[phase];
+  const eventDisplay = EVENT_DISPLAY[activeEvent];
+
+  // Sort phases by probability for display
+  const sortedPhases = Object.entries(nextPhaseProbs)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 4);
+
   return (
-    <div className="w-full max-w-2xl space-y-6">
+    <div className="w-full max-w-[500px] space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <Link href="/dashboard" className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+      <header className="flex items-center justify-between border-b border-[var(--line)] pb-4">
+        <Link href="/dashboard" className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-sm">
           ← retour
         </Link>
-        <h1 className="text-xl font-light">dahkacoin</h1>
+        <h1 className="text-[0.85rem] uppercase tracking-widest">dahkacoin</h1>
         <div className="w-16" />
-      </div>
+      </header>
 
-      {/* Event banner */}
-      {getEventBanner()}
-
-      {/* Phase Timeline */}
-      <PhaseTimeline 
-        currentPhase={phase} 
-        phaseProgress={phaseProgress}
-        momentum={momentum}
-      />
-
-      {/* Price card */}
-      <div className="border border-[var(--line)] p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="text-[var(--text-muted)] text-sm">prix actuel</p>
-            <AnimatedPrice value={currentPrice} momentum={momentum} />
+      {/* Event Banner */}
+      {activeEvent !== 'none' && (
+        <div className={`border p-3 ${
+          eventDisplay.type === 'pump' ? 'border-green-500/50 bg-green-500/5' :
+          eventDisplay.type === 'crash' ? 'border-red-500/50 bg-red-500/5' :
+          'border-purple-500/50 bg-purple-500/5'
+        }`}>
+          <div className="flex items-center justify-between mb-2">
+            <span className={`text-xs uppercase tracking-widest ${
+              eventDisplay.type === 'pump' ? 'text-green-500' :
+              eventDisplay.type === 'crash' ? 'text-red-500' :
+              'text-purple-500'
+            }`}>
+              {eventDisplay.label}
+            </span>
+            <span className="text-xs text-[var(--text-muted)] font-mono">
+              {formatTime(eventTimeLeft)}
+            </span>
           </div>
-          <div className="text-right">
-            <p className="text-xs text-[var(--text-muted)]">volatilite</p>
-            <p className={`text-sm ${
-              volatility === 'calme' ? 'text-gray-400' :
-              volatility === 'normal' ? 'text-gray-300' :
-              volatility === 'volatile' ? 'text-yellow-400' :
-              volatility === 'extreme' ? 'text-orange-400' :
-              'text-red-400 animate-pulse'
-            }`}>{volatility}</p>
+          <div className="h-1 bg-[rgba(255,255,255,0.1)] overflow-hidden">
+            <div 
+              className={`h-full transition-all duration-1000 ${
+                eventDisplay.type === 'pump' ? 'bg-green-500' :
+                eventDisplay.type === 'crash' ? 'bg-red-500' :
+                'bg-purple-500'
+              }`}
+              style={{ width: `${(1 - eventProgress) * 100}%` }}
+            />
           </div>
         </div>
+      )}
 
-        {/* Period selector */}
-        <div className="flex gap-2 mb-4">
+      {/* Price Display */}
+      <div className="border border-[var(--line)] p-4 bg-[rgba(255,255,255,0.01)]">
+        <div className="flex items-baseline justify-between mb-4">
+          <div>
+            <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-1">prix</p>
+            <p className={`text-2xl font-mono ${priceColor}`}>
+              {price.toFixed(4)}
+              <span className="text-[var(--text-muted)] text-sm ml-1">eur</span>
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-1">momentum</p>
+            <p className={`text-lg font-mono ${momentum > 0.1 ? 'text-green-500' : momentum < -0.1 ? 'text-red-500' : 'text-[var(--text-muted)]'}`}>
+              {momentum > 0 ? '+' : ''}{(momentum * 100).toFixed(0)}%
+            </p>
+          </div>
+        </div>
+        
+        {/* Chart period selector */}
+        <div className="flex gap-2 mb-3">
           {(["1h", "24h", "7d"] as const).map((p) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
-              className={`px-3 py-1 text-sm transition-colors ${
+              className={`px-2 py-1 text-[0.65rem] uppercase tracking-widest transition-colors ${
                 period === p
                   ? "bg-[var(--text)] text-[var(--bg)]"
-                  : "border border-[var(--line)] hover:border-[var(--text)]"
+                  : "text-[var(--text-muted)] hover:text-[var(--text)]"
               }`}
             >
               {p}
             </button>
           ))}
-          <span className="ml-auto text-xs text-[var(--text-muted)] self-center">
-            {period === "1h" ? "temps reel" : "historique"}
-          </span>
         </div>
 
-        {/* Chart */}
-        <canvas
-          ref={canvasRef}
-          width={600}
-          height={200}
-          className="w-full h-[200px]"
-        />
+        <canvas ref={canvasRef} width={500} height={150} className="w-full h-[150px]" />
+        
+        <div className="flex justify-between text-[0.6rem] text-[var(--text-muted)] mt-2 font-mono">
+          <span>atl: {allTimeLow.toFixed(4)}</span>
+          <span>ath: {allTimeHigh.toFixed(4)}</span>
+        </div>
+      </div>
+
+      {/* Market State */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* Current Phase */}
+        <div className="border border-[var(--line)] p-3 bg-[rgba(255,255,255,0.01)]">
+          <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-2">phase</p>
+          <div className="flex items-center justify-between mb-2">
+            <span className={`text-sm ${
+              phaseDisplay.risk === 'extreme' ? 'text-red-400' :
+              phaseDisplay.risk === 'high' ? 'text-orange-400' :
+              phaseDisplay.risk === 'medium' ? 'text-yellow-400' :
+              'text-[var(--text)]'
+            }`}>
+              {phaseDisplay.label}
+            </span>
+            <span className="text-xs text-[var(--text-muted)] font-mono">
+              {formatTime(phaseTimeLeft)}
+            </span>
+          </div>
+          <div className="h-1 bg-[rgba(255,255,255,0.1)] overflow-hidden">
+            <div 
+              className="h-full bg-[var(--text)] transition-all duration-1000"
+              style={{ width: `${phaseProgress * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Next Event Countdown */}
+        <div className="border border-[var(--line)] p-3 bg-[rgba(255,255,255,0.01)]">
+          <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-2">prochain event</p>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-lg font-mono text-[var(--text)]">
+              {formatTime(nextEventIn)}
+            </span>
+            <span className="text-[0.6rem] text-[var(--text-muted)]">
+              {volatility}
+            </span>
+          </div>
+          <div className="h-1 bg-[rgba(255,255,255,0.1)] overflow-hidden">
+            <div 
+              className="h-full bg-purple-500 transition-all duration-1000"
+              style={{ width: `${Math.max(0, (1 - nextEventIn / 45)) * 100}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Probabilities */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* Next Phase Probabilities */}
+        <div className="border border-[var(--line)] p-3 bg-[rgba(255,255,255,0.01)]">
+          <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">prochaine phase</p>
+          <div className="space-y-2">
+            {sortedPhases.map(([p, prob]) => (
+              <div key={p} className="flex items-center gap-2">
+                <span className="text-[0.65rem] text-[var(--text-muted)] w-20 truncate">
+                  {PHASE_DISPLAY[p as MarketPhase].label}
+                </span>
+                <div className="flex-1 h-1 bg-[rgba(255,255,255,0.1)] overflow-hidden">
+                  <div 
+                    className="h-full bg-[var(--text-muted)]"
+                    style={{ width: `${prob * 100}%` }}
+                  />
+                </div>
+                <span className="text-[0.6rem] text-[var(--text-muted)] font-mono w-8 text-right">
+                  {formatPercent(prob)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Event Probabilities */}
+        <div className="border border-[var(--line)] p-3 bg-[rgba(255,255,255,0.01)]">
+          <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">type d'event</p>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[0.65rem] text-green-500 w-12">pump</span>
+              <div className="flex-1 h-1 bg-[rgba(255,255,255,0.1)] overflow-hidden">
+                <div className="h-full bg-green-500" style={{ width: `${Math.min(100, eventProbs.pump * 5000)}%` }} />
+              </div>
+              <span className="text-[0.6rem] text-[var(--text-muted)] font-mono w-8 text-right">
+                {(eventProbs.pump * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[0.65rem] text-red-500 w-12">crash</span>
+              <div className="flex-1 h-1 bg-[rgba(255,255,255,0.1)] overflow-hidden">
+                <div className="h-full bg-red-500" style={{ width: `${Math.min(100, eventProbs.crash * 5000)}%` }} />
+              </div>
+              <span className="text-[0.6rem] text-[var(--text-muted)] font-mono w-8 text-right">
+                {(eventProbs.crash * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[0.65rem] text-purple-500 w-12">chaos</span>
+              <div className="flex-1 h-1 bg-[rgba(255,255,255,0.1)] overflow-hidden">
+                <div className="h-full bg-purple-500" style={{ width: `${Math.min(100, eventProbs.chaos * 5000)}%` }} />
+              </div>
+              <span className="text-[0.6rem] text-[var(--text-muted)] font-mono w-8 text-right">
+                {(eventProbs.chaos * 100).toFixed(1)}%
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Portfolio */}
-      <div className="border border-[var(--line)] p-6">
-        <h2 className="text-lg font-light mb-4">ton portefeuille</h2>
+      <div className="border border-[var(--line)] p-4 bg-[rgba(255,255,255,0.01)]">
+        <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">portefeuille</p>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <p className="text-[var(--text-muted)] text-sm">dahkacoins</p>
-            <p className="text-2xl font-light">{userDC.toFixed(4)} DC</p>
+            <p className="text-[0.6rem] text-[var(--text-muted)] mb-1">solde</p>
+            <p className="text-lg font-mono">{userDC.toFixed(4)} <span className="text-[var(--text-muted)] text-sm">dc</span></p>
           </div>
           <div>
-            <p className="text-[var(--text-muted)] text-sm">valeur actuelle</p>
-            <p className="text-2xl font-light">{(userDC * currentPrice).toFixed(2)}€</p>
+            <p className="text-[0.6rem] text-[var(--text-muted)] mb-1">valeur</p>
+            <p className="text-lg font-mono">{(userDC * price).toFixed(2)} <span className="text-[var(--text-muted)] text-sm">eur</span></p>
           </div>
           {userAvgPrice !== null && (
             <>
               <div>
-                <p className="text-[var(--text-muted)] text-sm">prix moyen d'achat</p>
-                <p className="text-lg font-light">{userAvgPrice.toFixed(4)}€</p>
+                <p className="text-[0.6rem] text-[var(--text-muted)] mb-1">prix moyen</p>
+                <p className="text-sm font-mono">{userAvgPrice.toFixed(4)}</p>
               </div>
               <div>
-                <p className="text-[var(--text-muted)] text-sm">profit/perte</p>
-                <p className={`text-lg font-light ${
-                  userProfit !== null && userProfit >= 0 ? "text-green-400" : "text-red-400"
-                }`}>
-                  {userProfit !== null ? (userProfit >= 0 ? "+" : "") + userProfit.toFixed(2) + "€" : "-"}
+                <p className="text-[0.6rem] text-[var(--text-muted)] mb-1">p/l</p>
+                <p className={`text-sm font-mono ${userProfit !== null && userProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {userProfit !== null ? (userProfit >= 0 ? '+' : '') + userProfit.toFixed(2) : '-'}
                 </p>
               </div>
             </>
@@ -824,111 +549,89 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       </div>
 
       {/* Trading */}
-      <div className="border border-[var(--line)] p-6">
-        <h2 className="text-lg font-light mb-4">trader</h2>
-        
+      <div className="border border-[var(--line)] p-4 bg-[rgba(255,255,255,0.01)]">
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setTradeMode("buy")}
-            className={`flex-1 py-2 transition-colors ${
+            className={`flex-1 py-2 text-[0.7rem] uppercase tracking-widest transition-colors ${
               tradeMode === "buy"
                 ? "bg-green-600 text-white"
-                : "border border-[var(--line)] hover:border-green-600"
+                : "border border-[var(--line)] text-[var(--text-muted)] hover:border-green-600"
             }`}
           >
             acheter
           </button>
           <button
             onClick={() => setTradeMode("sell")}
-            className={`flex-1 py-2 transition-colors ${
+            className={`flex-1 py-2 text-[0.7rem] uppercase tracking-widest transition-colors ${
               tradeMode === "sell"
                 ? "bg-red-600 text-white"
-                : "border border-[var(--line)] hover:border-red-600"
+                : "border border-[var(--line)] text-[var(--text-muted)] hover:border-red-600"
             }`}
           >
             vendre
           </button>
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="text-[var(--text-muted)] text-sm block mb-1">
-              {tradeMode === "buy" ? "montant en euros" : "quantite de DC"}
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                value={tradeAmount}
-                onChange={(e) => setTradeAmount(e.target.value)}
-                placeholder={tradeMode === "buy" ? "ex: 10" : "ex: 5.5"}
-                step="0.01"
-                min="0"
-                className="flex-1 bg-transparent border border-[var(--line)] px-3 py-2 focus:border-[var(--text)] outline-none transition-colors"
-              />
-              <button
-                onClick={handleTrade}
-                disabled={isTrading || !tradeAmount}
-                className={`px-6 py-2 transition-colors ${
-                  tradeMode === "buy"
-                    ? "bg-green-600 hover:bg-green-700 disabled:bg-green-900"
-                    : "bg-red-600 hover:bg-red-700 disabled:bg-red-900"
-                } disabled:opacity-50`}
-              >
-                {isTrading ? "..." : tradeMode === "buy" ? "acheter" : "vendre"}
-              </button>
-            </div>
-          </div>
-
-          {tradeAmount && !isNaN(parseFloat(tradeAmount)) && (
-            <p className="text-[var(--text-muted)] text-sm">
-              {tradeMode === "buy"
-                ? `≈ ${(parseFloat(tradeAmount) / currentPrice).toFixed(4)} DC`
-                : `≈ ${(parseFloat(tradeAmount) * currentPrice * 0.98).toFixed(2)}€ (apres 2% frais)`}
-            </p>
-          )}
-
-          {tradeResult && (
-            <p className={tradeResult.success ? "text-green-400" : "text-red-400"}>
-              {tradeResult.message}
-            </p>
-          )}
+        <div className="flex gap-2">
+          <input
+            type="number"
+            value={tradeAmount}
+            onChange={(e) => setTradeAmount(e.target.value)}
+            placeholder={tradeMode === "buy" ? "eur" : "dc"}
+            step="0.01"
+            min="0"
+            className="flex-1 bg-transparent border border-[var(--line)] px-3 py-2 text-sm font-mono focus:border-[var(--text)] outline-none"
+          />
+          <button
+            onClick={handleTrade}
+            disabled={isTrading || !tradeAmount}
+            className={`px-4 py-2 text-[0.7rem] uppercase tracking-widest transition-colors ${
+              tradeMode === "buy"
+                ? "bg-green-600 hover:bg-green-700 disabled:bg-green-900"
+                : "bg-red-600 hover:bg-red-700 disabled:bg-red-900"
+            } disabled:opacity-50`}
+          >
+            {isTrading ? "..." : "ok"}
+          </button>
         </div>
+
+        {tradeAmount && !isNaN(parseFloat(tradeAmount)) && (
+          <p className="text-[0.65rem] text-[var(--text-muted)] mt-2 font-mono">
+            {tradeMode === "buy"
+              ? `≈ ${(parseFloat(tradeAmount) / price).toFixed(4)} dc`
+              : `≈ ${(parseFloat(tradeAmount) * price * 0.98).toFixed(2)} eur (-2%)`}
+          </p>
+        )}
+
+        {tradeResult && (
+          <p className={`text-[0.65rem] mt-2 ${tradeResult.success ? "text-green-500" : "text-red-500"}`}>
+            {tradeResult.message}
+          </p>
+        )}
       </div>
 
-      {/* Transaction history */}
-      <div className="border border-[var(--line)] p-6">
-        <h2 className="text-lg font-light mb-4">historique</h2>
+      {/* History */}
+      <div className="border border-[var(--line)] p-4 bg-[rgba(255,255,255,0.01)]">
+        <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">historique</p>
         
         {transactions.length === 0 ? (
-          <p className="text-[var(--text-muted)] text-center">aucune transaction</p>
+          <p className="text-[var(--text-muted)] text-sm text-center py-4">aucune transaction</p>
         ) : (
           <div className="space-y-2">
             {transactions.map((tx) => (
-              <div
-                key={tx.id}
-                className="flex items-center justify-between py-2 border-b border-[var(--line)] last:border-0"
-              >
-                <div>
-                  <span className={tx.type === "buy" ? "text-green-400" : "text-red-400"}>
+              <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[var(--line)] last:border-0">
+                <div className="flex items-center gap-2">
+                  <span className={`text-[0.65rem] uppercase ${tx.type === "buy" ? "text-green-500" : "text-red-500"}`}>
                     {tx.type === "buy" ? "achat" : "vente"}
                   </span>
-                  <span className="text-[var(--text-muted)] ml-2">
-                    {tx.dcAmount.toFixed(4)} DC @ {tx.price.toFixed(4)}€
+                  <span className="text-[0.65rem] text-[var(--text-muted)] font-mono">
+                    {tx.dcAmount.toFixed(4)} @ {tx.price.toFixed(4)}
                   </span>
                 </div>
-                <div className="text-right">
-                  <span className={tx.type === "buy" ? "text-red-400" : "text-green-400"}>
-                    {tx.type === "buy" ? "-" : "+"}{tx.euroAmount.toFixed(2)}€
-                  </span>
-                  <span className="text-[var(--text-muted)] text-sm block">
-                    {new Date(tx.createdAt).toLocaleDateString("fr-FR", {
-                      day: "2-digit",
-                      month: "2-digit",
-                      hour: "2-digit",
-                      minute: "2-digit"
-                    })}
-                  </span>
-                </div>
+                <span className={`text-[0.65rem] font-mono ${tx.type === "buy" ? "text-red-500" : "text-green-500"}`}>
+                  {tx.type === "buy" ? "-" : "+"}{tx.euroAmount.toFixed(2)}
+                </span>
               </div>
             ))}
           </div>
