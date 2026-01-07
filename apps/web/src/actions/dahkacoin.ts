@@ -59,6 +59,10 @@ interface MarketState {
   allTimeHigh: number;
   allTimeLow: number;
   lastUpdate: number;
+  // Anti-pump regulation
+  recentPumps: number;     // Count of recent pump events
+  recentCrashes: number;   // Count of recent crash events
+  lastRegulationCheck: number;
 }
 
 interface DCState {
@@ -302,6 +306,9 @@ async function getMarketState(): Promise<MarketState> {
       allTimeHigh: DC_INITIAL_PRICE,
       allTimeLow: DC_INITIAL_PRICE,
       lastUpdate: now,
+      recentPumps: 0,
+      recentCrashes: 0,
+      lastRegulationCheck: now,
     };
     
     await prisma.$executeRaw`
@@ -334,6 +341,16 @@ async function getMarketState(): Promise<MarketState> {
   }
   if (!parsed.momentum || isNaN(parsed.momentum)) {
     parsed.momentum = 0;
+  }
+  // Regulation counters - init if missing (migration)
+  if (parsed.recentPumps === undefined || isNaN(parsed.recentPumps)) {
+    parsed.recentPumps = 0;
+  }
+  if (parsed.recentCrashes === undefined || isNaN(parsed.recentCrashes)) {
+    parsed.recentCrashes = 0;
+  }
+  if (!parsed.lastRegulationCheck || isNaN(parsed.lastRegulationCheck)) {
+    parsed.lastRegulationCheck = now;
   }
   
   return parsed;
@@ -422,6 +439,13 @@ export async function tickPrice(): Promise<{
   // Update event countdown and check for new events
   state.nextEventIn -= deltaMs;
   
+  // Decay regulation counters every 5 minutes
+  if (now - state.lastRegulationCheck > 300000) {
+    state.recentPumps = Math.max(0, state.recentPumps - 1);
+    state.recentCrashes = Math.max(0, state.recentCrashes - 1);
+    state.lastRegulationCheck = now;
+  }
+  
   if (state.activeEvent !== 'none') {
     const eventElapsed = now - state.eventStartTime;
     if (eventElapsed >= state.eventDuration) {
@@ -430,41 +454,77 @@ export async function tickPrice(): Promise<{
       state.nextEventIn = randomInRange(EVENT_CHECK_INTERVAL.min, EVENT_CHECK_INTERVAL.max) * 1000;
     }
   } else if (state.nextEventIn <= 0) {
-    // Try to trigger an event
-    const probs = calculateEventProbs(state.phase, state.momentum);
-    const totalProb = probs.pump + probs.crash + probs.chaos;
+    let event: MarketEvent = 'none';
     
-    if (Math.random() < totalProb * 10) { // Scaled up for the countdown system
-      const roll = Math.random();
-      let event: MarketEvent = 'none';
-      
-      if (roll < probs.pump / totalProb) {
-        // Pump event
-        const pumpEvents: MarketEvent[] = ['whale_pump', 'mega_pump', 'fomo_wave', 'short_squeeze', 'golden_hour'];
-        event = pumpEvents[Math.floor(Math.random() * pumpEvents.length)];
-      } else if (roll < (probs.pump + probs.crash) / totalProb) {
-        // Crash event
-        const crashEvents: MarketEvent[] = ['whale_dump', 'flash_crash', 'panic_wave', 'rug_pull'];
-        // Rug pull only in euphoria
-        const available = state.phase === 'euphoria' ? crashEvents : crashEvents.filter(e => e !== 'rug_pull');
-        event = available[Math.floor(Math.random() * available.length)];
+    // REGULATION: Force correction if too many pumps or crashes
+    const pumpImbalance = state.recentPumps - state.recentCrashes;
+    const priceVsFair = state.price / DC_FAIR_VALUE;
+    
+    // Force crash if: 3+ more pumps than crashes OR price > 10x fair value
+    if (pumpImbalance >= 3 || priceVsFair > 10) {
+      // Forced correction - severity based on imbalance
+      if (pumpImbalance >= 5 || priceVsFair > 20) {
+        event = 'rug_pull'; // Catastrophic correction
+      } else if (pumpImbalance >= 4 || priceVsFair > 15) {
+        event = 'flash_crash'; // Major correction
       } else {
-        // Chaos event
-        const chaosEvents: MarketEvent[] = ['dead_cat_bounce', 'calm_before_storm', 'volatility_storm', 'price_freeze', 'momentum_flip', 'mystery_whale', 'double_or_nothing'];
-        event = chaosEvents[Math.floor(Math.random() * chaosEvents.length)];
+        event = 'whale_dump'; // Moderate correction
+      }
+      state.recentPumps = 0; // Reset after forced correction
+    }
+    // Force pump if: 3+ more crashes than pumps OR price < 0.1x fair value
+    else if (pumpImbalance <= -3 || priceVsFair < 0.1) {
+      if (pumpImbalance <= -5 || priceVsFair < 0.05) {
+        event = 'mega_pump';
+      } else if (pumpImbalance <= -4 || priceVsFair < 0.08) {
+        event = 'short_squeeze';
+      } else {
+        event = 'whale_pump';
+      }
+      state.recentCrashes = 0;
+    }
+    // Normal random event selection
+    else {
+      const probs = calculateEventProbs(state.phase, state.momentum);
+      const totalProb = probs.pump + probs.crash + probs.chaos;
+      
+      if (Math.random() < totalProb * 10) {
+        const roll = Math.random();
+        
+        if (roll < probs.pump / totalProb) {
+          const pumpEvents: MarketEvent[] = ['whale_pump', 'mega_pump', 'fomo_wave', 'short_squeeze', 'golden_hour'];
+          event = pumpEvents[Math.floor(Math.random() * pumpEvents.length)];
+        } else if (roll < (probs.pump + probs.crash) / totalProb) {
+          const crashEvents: MarketEvent[] = ['whale_dump', 'flash_crash', 'panic_wave', 'rug_pull'];
+          const available = state.phase === 'euphoria' ? crashEvents : crashEvents.filter(e => e !== 'rug_pull');
+          event = available[Math.floor(Math.random() * available.length)];
+        } else {
+          const chaosEvents: MarketEvent[] = ['dead_cat_bounce', 'calm_before_storm', 'volatility_storm', 'price_freeze', 'momentum_flip', 'mystery_whale', 'double_or_nothing'];
+          event = chaosEvents[Math.floor(Math.random() * chaosEvents.length)];
+        }
+      }
+    }
+    
+    if (event !== 'none') {
+      const config = EVENT_CONFIG[event];
+      state.activeEvent = event;
+      state.eventStartTime = now;
+      state.eventDuration = randomInRange(config.duration.min, config.duration.max) * 1000;
+      state.eventDirection = config.direction === 'random' ? (Math.random() > 0.5 ? 1 : -1) : (config.direction === 'up' ? 1 : config.direction === 'down' ? -1 : 0);
+      
+      // Track event type for regulation
+      const pumpEvents: MarketEvent[] = ['whale_pump', 'mega_pump', 'fomo_wave', 'short_squeeze', 'golden_hour'];
+      const crashEvents: MarketEvent[] = ['whale_dump', 'flash_crash', 'panic_wave', 'rug_pull'];
+      
+      if (pumpEvents.includes(event)) {
+        state.recentPumps++;
+      } else if (crashEvents.includes(event)) {
+        state.recentCrashes++;
       }
       
-      if (event !== 'none') {
-        const config = EVENT_CONFIG[event];
-        state.activeEvent = event;
-        state.eventStartTime = now;
-        state.eventDuration = randomInRange(config.duration.min, config.duration.max) * 1000;
-        state.eventDirection = config.direction === 'random' ? (Math.random() > 0.5 ? 1 : -1) : (config.direction === 'up' ? 1 : config.direction === 'down' ? -1 : 0);
-        
-        // Special: momentum_flip
-        if (event === 'momentum_flip') {
-          state.momentum = -state.momentum;
-        }
+      // Special: momentum_flip
+      if (event === 'momentum_flip') {
+        state.momentum = -state.momentum;
       }
     }
     
@@ -877,6 +937,9 @@ export async function resetMarketState(): Promise<{ success: boolean }> {
     allTimeHigh: DC_INITIAL_PRICE,
     allTimeLow: DC_INITIAL_PRICE,
     lastUpdate: now,
+    recentPumps: 0,
+    recentCrashes: 0,
+    lastRegulationCheck: now,
   };
   
   await prisma.$executeRaw`
