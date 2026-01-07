@@ -120,15 +120,19 @@ export function ShopGrid({ userUpgrades, userInventory, userBalance }: ShopGridP
 
   return (
     <div className="flex flex-col gap-8">
-      {/* Messages */}
-      {error && (
-        <div className="text-center p-3 border border-red-500/30 bg-red-500/10 text-red-400 text-sm animate-fade-in">
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="text-center p-3 border border-green-500/30 bg-green-500/10 text-green-400 text-sm animate-fade-in">
-          {success}
+      {/* Toast messages - fixed position */}
+      {(error || success) && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+          {error && (
+            <div className="px-4 py-2 border border-red-500/30 bg-[#1a1a1a] text-red-400 text-sm shadow-lg">
+              {error}
+            </div>
+          )}
+          {success && (
+            <div className="px-4 py-2 border border-green-500/30 bg-[#1a1a1a] text-green-400 text-sm shadow-lg">
+              {success}
+            </div>
+          )}
         </div>
       )}
 
