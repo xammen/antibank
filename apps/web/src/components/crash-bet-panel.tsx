@@ -3,7 +3,7 @@
 import { useState, useTransition, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { placeCrashBet, cashOutCrash } from "@/actions/crash";
+import { placeCrashBet, cashOutCrash, getUserCrashHistory } from "@/actions/crash";
 import { useBalance } from "@/hooks/use-balance";
 
 interface CrashBetPanelProps {
@@ -19,6 +19,14 @@ interface CrashBetPanelProps {
   userBalance: string;
 }
 
+interface BetHistoryEntry {
+  crashPoint: number;
+  bet: number;
+  cashOutAt: number | null;
+  profit: number;
+  createdAt: Date;
+}
+
 export function CrashBetPanel({
   gameState,
   userBet,
@@ -30,8 +38,19 @@ export function CrashBetPanel({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [betHistory, setBetHistory] = useState<BetHistoryEntry[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const { setBalance } = useBalance(userBalance);
   const autoCashoutTriggered = useRef(false);
+
+  // Load bet history on mount and after each game
+  useEffect(() => {
+    const loadHistory = async () => {
+      const history = await getUserCrashHistory();
+      setBetHistory(history);
+    };
+    loadHistory();
+  }, [gameState]); // Reload when game state changes
 
   // Auto-cashout logic
   useEffect(() => {
@@ -65,6 +84,14 @@ export function CrashBetPanel({
     }
   }, [gameState]);
 
+  // Clear messages when game state changes
+  useEffect(() => {
+    if (gameState === "waiting") {
+      setError(null);
+      setSuccess(null);
+    }
+  }, [gameState]);
+
   const handleBet = () => {
     setError(null);
     setSuccess(null);
@@ -78,7 +105,7 @@ export function CrashBetPanel({
     startTransition(async () => {
       const result = await placeCrashBet(amount);
       if (result.success) {
-        setSuccess("pari placé!");
+        setSuccess("pari place!");
         // Update balance locally
         const newBalance = parseFloat(userBalance) - amount;
         setBalance(newBalance.toFixed(2));
@@ -156,6 +183,22 @@ export function CrashBetPanel({
             ))}
           </div>
 
+          {/* Auto cashout */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[0.7rem] uppercase tracking-widest text-[var(--text-muted)]">
+              auto cashout (optionnel)
+            </label>
+            <Input
+              type="number"
+              min="1.1"
+              step="0.1"
+              value={autoCashoutAt}
+              onChange={(e) => setAutoCashoutAt(e.target.value)}
+              className="bg-[var(--bg)] border-[var(--line)] text-[var(--text)] font-mono"
+              placeholder="ex: 2.0"
+            />
+          </div>
+
           {/* Bet button */}
           <Button
             onClick={handleBet}
@@ -170,8 +213,13 @@ export function CrashBetPanel({
       {/* Si bet placé mais partie pas commencée */}
       {userBet && !userBet.cashedOut && gameState === "waiting" && (
         <div className="text-center py-8">
-          <p className="text-sm text-[var(--text-muted)]">pari placé</p>
+          <p className="text-sm text-[var(--text-muted)]">pari place</p>
           <p className="text-2xl font-mono mt-2">{userBet.bet}€</p>
+          {autoCashoutAt && (
+            <p className="text-xs text-[var(--text-muted)] mt-2">
+              auto cashout @ x{parseFloat(autoCashoutAt).toFixed(2)}
+            </p>
+          )}
           <p className="text-xs text-[var(--text-muted)] mt-2">en attente...</p>
         </div>
       )}
@@ -204,7 +252,7 @@ export function CrashBetPanel({
       {/* Si cashedout */}
       {userBet?.cashedOut && (
         <div className="text-center py-8">
-          <p className="text-sm text-green-400 uppercase tracking-widest">cashout réussi!</p>
+          <p className="text-sm text-green-400 uppercase tracking-widest">cashout reussi!</p>
           <p className="text-3xl font-mono mt-2 text-green-400">
             x{userBet.cashOutMultiplier?.toFixed(2)}
           </p>
@@ -227,7 +275,7 @@ export function CrashBetPanel({
       {/* Paris fermés */}
       {!userBet && gameState === "running" && (
         <div className="text-center py-8 text-[var(--text-muted)]">
-          <p className="text-sm uppercase tracking-widest">paris fermés</p>
+          <p className="text-sm uppercase tracking-widest">paris fermes</p>
           <p className="text-xs mt-2">attends la prochaine partie</p>
         </div>
       )}
@@ -238,6 +286,49 @@ export function CrashBetPanel({
           <p className="text-sm">prochaine partie dans quelques secondes...</p>
         </div>
       )}
+
+      {/* User bet history toggle */}
+      <div className="border-t border-[var(--line)] pt-3 mt-2">
+        <button
+          onClick={() => setShowHistory(!showHistory)}
+          className="w-full text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors flex items-center justify-between"
+        >
+          <span>mon historique</span>
+          <span>{showHistory ? "▲" : "▼"}</span>
+        </button>
+        
+        {showHistory && (
+          <div className="mt-3 flex flex-col gap-2 max-h-40 overflow-auto">
+            {betHistory.length === 0 && (
+              <p className="text-xs text-[var(--text-muted)] text-center py-2">
+                aucun historique
+              </p>
+            )}
+            {betHistory.map((entry, i) => (
+              <div
+                key={i}
+                className={`flex items-center justify-between text-xs p-2 border ${
+                  entry.profit >= 0
+                    ? "border-green-500/30 bg-green-500/10"
+                    : "border-red-500/30 bg-red-500/10"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-[var(--text-muted)]">{entry.bet}€</span>
+                  {entry.cashOutAt ? (
+                    <span className="text-green-400">x{entry.cashOutAt.toFixed(2)}</span>
+                  ) : (
+                    <span className="text-red-400">crash x{entry.crashPoint.toFixed(2)}</span>
+                  )}
+                </div>
+                <span className={entry.profit >= 0 ? "text-green-400" : "text-red-400"}>
+                  {entry.profit >= 0 ? "+" : ""}{entry.profit.toFixed(2)}€
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

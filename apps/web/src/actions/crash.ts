@@ -84,6 +84,32 @@ export async function placeCrashBet(amount: number): Promise<BetResult> {
   }
 }
 
+export async function voteSkipCrash(): Promise<{ success: boolean; skipped?: boolean }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false };
+  }
+
+  const manager = getCrashManager();
+  return manager.voteSkip(session.user.id);
+}
+
+export async function getUserCrashHistory(): Promise<Array<{
+  crashPoint: number;
+  bet: number;
+  cashOutAt: number | null;
+  profit: number;
+  createdAt: Date;
+}>> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return [];
+  }
+
+  const manager = getCrashManager();
+  return manager.getUserBetHistory(session.user.id, 10);
+}
+
 export async function cashOutCrash(): Promise<CashOutResult> {
   const session = await auth();
   if (!session?.user?.id) {

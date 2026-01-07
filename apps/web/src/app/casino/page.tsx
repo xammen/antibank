@@ -4,6 +4,15 @@ import Link from "next/link";
 
 const games = [
   {
+    id: "arena",
+    name: "Arena",
+    description: "Rooms multijoueurs (2-8 joueurs) - Dés & PFC",
+    icon: "🏟️",
+    href: "/casino/arena",
+    available: true,
+    isNew: true,
+  },
+  {
     id: "crash",
     name: "Crash",
     description: "Multiplie ta mise, cashout avant le crash!",
@@ -14,18 +23,18 @@ const games = [
   {
     id: "dice",
     name: "Duel de Dés",
-    description: "Défie un autre joueur aux dés",
+    description: "Défie un autre joueur aux dés (legacy 1v1)",
     icon: "🎲",
     href: "/casino/dice",
-    available: true, // Page exists but shows "coming soon"
+    available: true,
   },
   {
     id: "pfc",
     name: "Pierre-Feuille-Ciseaux",
-    description: "Le classique, avec de l'argent",
+    description: "Le classique, avec de l'argent (legacy 1v1)",
     icon: "✊",
     href: "/casino/pfc",
-    available: true, // Page exists but shows "coming soon"
+    available: true,
   },
   {
     id: "lottery",
@@ -33,7 +42,7 @@ const games = [
     description: "Ticket à 1€, tirage hebdomadaire",
     icon: "🎰",
     href: "/casino/lottery",
-    available: true, // Page exists but shows "coming soon"
+    available: true,
   },
 ];
 
@@ -88,7 +97,12 @@ export default async function CasinoPage() {
                   <h2 className="text-sm font-medium">{game.name}</h2>
                   {!game.available && (
                     <span className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] px-1.5 py-0.5 border border-[var(--line)]">
-                      bientôt
+                      bientot
+                    </span>
+                  )}
+                  {"isNew" in game && game.isNew && (
+                    <span className="text-[0.6rem] uppercase tracking-widest text-green-400 px-1.5 py-0.5 border border-green-400/50">
+                      new
                     </span>
                   )}
                 </div>

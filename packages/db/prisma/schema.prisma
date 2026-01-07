@@ -42,6 +42,9 @@ model User {
   pfcGamesAsP1    PFCGame[]   @relation("PFCPlayer1")
   pfcGamesAsP2    PFCGame[]   @relation("PFCPlayer2")
   lotteryTickets  LotteryTicket[]
+  
+  // Game Rooms
+  hostedRooms     GameRoom[]  @relation("RoomHost")
 }
 
 // Historique des transactions
@@ -130,7 +133,7 @@ model CrashBet {
   @@index([userId])
 }
 
-// Duel de Dés
+// Duel de Dés (legacy 1v1)
 model DiceGame {
   id           String   @id @default(cuid())
   
@@ -154,6 +157,69 @@ model DiceGame {
   @@index([player1Id])
   @@index([player2Id])
   @@index([status])
+}
+
+// ============================================
+// GAME ROOMS - Système multijoueur unifié
+// ============================================
+
+// Room de jeu (dés, pfc, etc.)
+model GameRoom {
+  id           String   @id @default(cuid())
+  
+  gameType     String   // "dice", "pfc"
+  amount       Decimal  @db.Decimal(10, 2) // Mise par joueur
+  
+  minPlayers   Int      @default(2)  // Minimum pour lancer
+  maxPlayers   Int      @default(8)  // Maximum dans la room
+  
+  code         String?  @unique // Code pour room privée (null = publique)
+  
+  hostId       String   // Créateur de la room
+  host         User     @relation("RoomHost", fields: [hostId], references: [id], onDelete: Cascade)
+  
+  status       String   @default("waiting") // "waiting", "countdown", "playing", "finished"
+  
+  countdownEnd DateTime? // Fin du countdown (15s après minPlayers atteint)
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime // Auto-delete si vide après 5min
+  
+  players      GameRoomPlayer[]
+  
+  @@index([status])
+  @@index([gameType, status])
+  @@index([code])
+}
+
+// Joueur dans une room
+model GameRoomPlayer {
+  id           String   @id @default(cuid())
+  
+  roomId       String
+  room         GameRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  
+  userId       String   
+  username     String   // Username pour affichage rapide
+  
+  isReady      Boolean  @default(false) // A confirmé sa participation
+  
+  // Résultats (remplis quand la partie est jouée)
+  roll         Int?     // Pour dice: total des dés
+  dice1        Int?     // Dé 1
+  dice2        Int?     // Dé 2
+  choice       String?  // Pour pfc: "pierre", "feuille", "ciseaux"
+  
+  profit       Decimal? @db.Decimal(10, 2) // Gain/perte
+  rank         Int?     // Classement final
+  
+  joinedAt     DateTime @default(now())
+  
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@index([userId])
 }
 
 // Pierre-Feuille-Ciseaux
