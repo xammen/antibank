@@ -248,7 +248,21 @@ async function getMarketState(): Promise<MarketState> {
     return initialState;
   }
 
-  return JSON.parse(config[0].value) as MarketState;
+  const parsed = JSON.parse(config[0].value) as MarketState;
+  
+  // Validate phase - if invalid, reset to accumulation
+  const validPhases: MarketPhase[] = ['accumulation', 'markup', 'euphoria', 'distribution', 'decline', 'capitulation', 'recovery'];
+  if (!validPhases.includes(parsed.phase)) {
+    parsed.phase = 'accumulation';
+  }
+  
+  // Validate event
+  const validEvents: ExtremeEvent[] = ['none', 'whale_pump', 'whale_dump', 'flash_crash', 'mega_pump', 'liquidity_crisis', 'fomo_wave', 'panic_wave'];
+  if (!validEvents.includes(parsed.activeEvent)) {
+    parsed.activeEvent = 'none';
+  }
+  
+  return parsed;
 }
 
 async function saveMarketState(state: MarketState): Promise<void> {
