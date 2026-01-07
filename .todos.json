@@ -1,0 +1,40 @@
+{
+  "todos": [
+    {
+      "id": "1",
+      "content": "Add rematchGameId field to PFCGame and DiceGame models in schema.prisma",
+      "status": "pending",
+      "priority": "high"
+    },
+    {
+      "id": "2", 
+      "content": "Update requestPFCRematch to set rematchGameId on old game when creating new game",
+      "status": "pending",
+      "priority": "high"
+    },
+    {
+      "id": "3",
+      "content": "Update checkPFCRematchStatus to return rematchGameId if it exists",
+      "status": "pending",
+      "priority": "high"
+    },
+    {
+      "id": "4",
+      "content": "Update client to use rematchGameId to detect rematch game created",
+      "status": "pending",
+      "priority": "high"
+    },
+    {
+      "id": "5",
+      "content": "Apply same fix to DiceGame rematch system",
+      "status": "pending",
+      "priority": "high"
+    },
+    {
+      "id": "6",
+      "content": "Run db:generate and test",
+      "status": "pending",
+      "priority": "high"
+    }
+  ]
+}
