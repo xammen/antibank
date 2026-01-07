@@ -13,7 +13,8 @@ import {
 import { HEIST_CONFIG } from "@/lib/heist-config";
 
 // Config braquage
-const ROBBERY_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3h
+const ROBBERY_COOLDOWN_SUCCESS_MS = 25 * 60 * 1000; // 25 min si reussi
+const ROBBERY_COOLDOWN_FAIL_MS = 15 * 60 * 1000; // 15 min si rate
 const MIN_VICTIM_BALANCE = 20; // 20 euros minimum pour se faire braquer
 const BASE_SUCCESS_CHANCE = 40; // 40% de base
 const STEAL_PERCENT_MIN = 10; // 10% minimum
@@ -98,16 +99,20 @@ export async function getRobberyCooldown(): Promise<{ canRob: boolean; cooldownE
     return { canRob: false };
   }
 
-  const result = await prisma.$queryRaw<[{ lastRobberyAt: Date | null }]>`
-    SELECT "lastRobberyAt" FROM "User" WHERE id = ${session.user.id}
+  // Récupérer le dernier braquage pour connaître le cooldown approprié
+  const lastRobbery = await prisma.$queryRaw<[{ createdAt: Date; success: boolean }] | []>`
+    SELECT "createdAt", success FROM "Robbery" 
+    WHERE "robberId" = ${session.user.id}
+    ORDER BY "createdAt" DESC
+    LIMIT 1
   `;
 
-  const lastRobberyAt = result[0]?.lastRobberyAt;
-  if (!lastRobberyAt) {
+  if (!lastRobbery[0]) {
     return { canRob: true };
   }
 
-  const cooldownEnds = lastRobberyAt.getTime() + ROBBERY_COOLDOWN_MS;
+  const cooldownMs = lastRobbery[0].success ? ROBBERY_COOLDOWN_SUCCESS_MS : ROBBERY_COOLDOWN_FAIL_MS;
+  const cooldownEnds = lastRobbery[0].createdAt.getTime() + cooldownMs;
   const canRob = Date.now() >= cooldownEnds;
 
   return { canRob, cooldownEnds: canRob ? undefined : cooldownEnds };
@@ -150,9 +155,17 @@ export async function attemptRobbery(victimId: string): Promise<RobberyResult> {
   const robberBalance = parseFloat(robber.balance);
   const victimBalance = parseFloat(victim.balance);
 
-  // Verifier cooldown
-  if (robber.lastRobberyAt) {
-    const cooldownEnds = robber.lastRobberyAt.getTime() + ROBBERY_COOLDOWN_MS;
+  // Verifier cooldown (basé sur le dernier braquage)
+  const lastRobbery = await prisma.$queryRaw<[{ createdAt: Date; success: boolean }] | []>`
+    SELECT "createdAt", success FROM "Robbery" 
+    WHERE "robberId" = ${session.user.id}
+    ORDER BY "createdAt" DESC
+    LIMIT 1
+  `;
+
+  if (lastRobbery[0]) {
+    const cooldownMs = lastRobbery[0].success ? ROBBERY_COOLDOWN_SUCCESS_MS : ROBBERY_COOLDOWN_FAIL_MS;
+    const cooldownEnds = lastRobbery[0].createdAt.getTime() + cooldownMs;
     if (Date.now() < cooldownEnds) {
       return { success: false, error: "cooldown actif", cooldownEnds };
     }

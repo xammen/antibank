@@ -158,7 +158,9 @@ export function RobberyClient({ userId }: RobberyClientProps) {
     if (result.success && result.robbery) {
       setLastResult(result.robbery);
       setCanRob(false);
-      setCooldownEnds(Date.now() + 3 * 60 * 60 * 1000);
+      // Cooldown: 25 min si réussi, 15 min si raté
+      const cooldownMs = result.robbery.success ? 25 * 60 * 1000 : 15 * 60 * 1000;
+      setCooldownEnds(Date.now() + cooldownMs);
       // Reload data
       loadData();
     }
@@ -176,7 +178,9 @@ export function RobberyClient({ userId }: RobberyClientProps) {
     if (result.success && result.robbery) {
       setLastResult(result.robbery);
       setCanRob(false);
-      setCooldownEnds(Date.now() + 3 * 60 * 60 * 1000);
+      // Cooldown: 25 min si réussi, 15 min si raté
+      const cooldownMs = result.robbery.success ? 25 * 60 * 1000 : 15 * 60 * 1000;
+      setCooldownEnds(Date.now() + cooldownMs);
       loadData();
     }
 
@@ -484,9 +488,9 @@ export function RobberyClient({ userId }: RobberyClientProps) {
         <p className="text-[0.7rem] text-[var(--text-muted)]">
           40% de chances de base | +10% si la cible est 5x+ plus riche
           <br />
-          succès: vole 10-20% | échec: perd 5% de ta balance
+          succes: vole 10-20% | echec: perd 5% de ta balance
           <br />
-          cooldown: 3h entre chaque tentative
+          cooldown: 25min si reussi | 15min si rate
         </p>
       </div>
 
