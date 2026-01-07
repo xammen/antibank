@@ -141,11 +141,12 @@ function calculatePhaseTransitions(
       probs.decline = 0.10 - bullishBias;
       break;
     case 'euphoria':
-      probs.distribution = 0.40 + highPriceBias;
-      probs.capitulation = 0.25;
+      // Euphoria is SHORT and leads to crash - the party doesn't last
+      probs.distribution = 0.45 + highPriceBias;
+      probs.capitulation = 0.30;
       probs.decline = 0.15;
-      probs.euphoria = 0.10 - highPriceBias;
-      probs.markup = 0.10;
+      probs.euphoria = 0.05 - highPriceBias;  // Very unlikely to stay in euphoria
+      probs.markup = 0.05;
       break;
     case 'distribution':
       probs.decline = 0.35 - bullishBias;
@@ -245,12 +246,12 @@ function calculateEventProbs(phase: MarketPhase, momentum: number): { pump: numb
 
 const VOLATILITY_BY_PHASE: Record<MarketPhase, { base: number; max: number }> = {
   accumulation: { base: 0.001, max: 0.01 },
-  markup: { base: 0.003, max: 0.03 },
-  euphoria: { base: 0.010, max: 0.10 },
+  markup: { base: 0.002, max: 0.02 },
+  euphoria: { base: 0.004, max: 0.04 },  // Reduced - less crazy pumps
   distribution: { base: 0.005, max: 0.05 },
   decline: { base: 0.004, max: 0.04 },
-  capitulation: { base: 0.015, max: 0.15 },
-  recovery: { base: 0.003, max: 0.03 },
+  capitulation: { base: 0.008, max: 0.08 },  // Reduced
+  recovery: { base: 0.002, max: 0.02 },
 };
 
 function getVolatilityName(base: number): string {
@@ -532,23 +533,23 @@ export async function tickPrice(): Promise<{
     state.nextEventIn = randomInRange(EVENT_CHECK_INTERVAL.min, EVENT_CHECK_INTERVAL.max) * 1000;
   }
 
-  // Update momentum with decay
-  state.momentum *= 0.995;
+  // Update momentum with decay - faster decay to prevent runaway
+  state.momentum *= 0.99;
   
-  // Phase influences momentum - stronger influence for more dynamic feel
+  // Phase influences momentum - euphoria now triggers selling pressure
   const phaseInfluence: Record<MarketPhase, number> = {
-    accumulation: 0.005,
-    markup: 0.015,
-    euphoria: 0.025,
+    accumulation: 0.003,
+    markup: 0.008,
+    euphoria: -0.005,  // Euphoria = people start taking profits, negative pressure
     distribution: -0.010,
-    decline: -0.015,
-    capitulation: -0.025,
-    recovery: 0.010,
+    decline: -0.012,
+    capitulation: -0.015,
+    recovery: 0.005,
   };
   state.momentum += phaseInfluence[state.phase] * deltaSeconds;
   
   // Add random momentum fluctuation for more dynamic probs
-  state.momentum += (Math.random() - 0.5) * 0.02 * deltaSeconds;
+  state.momentum += (Math.random() - 0.5) * 0.015 * deltaSeconds;
   state.momentum = Math.max(-1, Math.min(1, state.momentum));
 
   // Calculate price change
