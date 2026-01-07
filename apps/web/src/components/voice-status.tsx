@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useBalance } from "@/hooks/use-balance";
-import { formatDuration, formatMinutes } from "@/lib/voice-bonus";
+import { formatMinutes } from "@/lib/voice-bonus";
 
 interface VoiceStatusData {
   inVoice: boolean;
@@ -32,14 +32,13 @@ interface VoiceStatusData {
 }
 
 export function VoiceStatus() {
-  const [status, setStatus] = useState<VoiceStatusData>({ inVoice: false });
+  const [status, setStatus] = useState<VoiceStatusData | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
   const [blink, setBlink] = useState(true);
   const [countdown, setCountdown] = useState(60);
   const [flash, setFlash] = useState(false);
-  const [sessionTime, setSessionTime] = useState(0);
   const { refreshBalance } = useBalance("0");
   const lastMinute = useRef<number>(-1);
-  const sessionStart = useRef<Date | null>(null);
 
   // Fetch status
   const fetchStatus = useCallback(async () => {
@@ -47,54 +46,30 @@ export function VoiceStatus() {
       const res = await fetch("/api/voice-status");
       const data = await res.json();
       setStatus(data);
-      
-      if (data.inVoice && data.joinedAt) {
-        sessionStart.current = new Date(data.joinedAt);
-      } else {
-        sessionStart.current = null;
-      }
+      // Petit délai pour que la transition soit visible
+      setTimeout(() => setIsLoaded(true), 50);
     } catch {
       setStatus({ inVoice: false });
+      setIsLoaded(true);
     }
   }, []);
 
   useEffect(() => {
     fetchStatus();
-    // Poll toutes les 30 sec
     const interval = setInterval(fetchStatus, 30000);
     return () => clearInterval(interval);
   }, [fetchStatus]);
 
-  // Update session timer every second
-  useEffect(() => {
-    if (!status.inVoice || !sessionStart.current) return;
-    
-    const updateTimer = () => {
-      if (sessionStart.current) {
-        const seconds = Math.floor((Date.now() - sessionStart.current.getTime()) / 1000);
-        setSessionTime(seconds);
-      }
-    };
-    
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [status.inVoice]);
-
   // Blink effect
   useEffect(() => {
-    if (!status.inVoice) return;
-    
-    const blinkInterval = setInterval(() => {
-      setBlink(prev => !prev);
-    }, 1000);
-
+    if (!status?.inVoice) return;
+    const blinkInterval = setInterval(() => setBlink(prev => !prev), 1000);
     return () => clearInterval(blinkInterval);
-  }, [status.inVoice]);
+  }, [status?.inVoice]);
 
   // Countdown timer - sync avec les minutes + refresh balance
   useEffect(() => {
-    if (!status.inVoice) return;
+    if (!status?.inVoice) return;
 
     const updateCountdown = () => {
       const now = new Date();
@@ -106,7 +81,6 @@ export function VoiceStatus() {
       // Nouvelle minute = refresh le solde
       if (lastMinute.current !== -1 && lastMinute.current !== currentMinute) {
         refreshBalance();
-        // Flash effect
         setFlash(true);
         setTimeout(() => setFlash(false), 500);
       }
@@ -115,171 +89,116 @@ export function VoiceStatus() {
 
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
-
     return () => clearInterval(interval);
-  }, [status.inVoice, refreshBalance]);
+  }, [status?.inVoice, refreshBalance]);
 
-  // Afficher les stats même si pas en vocal (si on a des données)
-  if (!status.inVoice && !status.dailyVoiceMinutes && !status.voiceStreak) {
+  // Rien à afficher
+  if (!status || (!status.inVoice && !status.dailyVoiceMinutes && !status.voiceStreak)) {
     return null;
   }
 
-  // Mode "pas en vocal mais stats dispo"
+  const multiplierText = status.sessionMultiplier && status.sessionMultiplier > 1 
+    ? `x${status.sessionMultiplier.toFixed(1)}` 
+    : null;
+
+  // Calcul progression
+  const progressPercent = status.nextTier 
+    ? Math.min(100, ((status.dailyVoiceMinutes || 0) / status.nextTier.minutes) * 100)
+    : 0;
+
+  // Mode inactif
   if (!status.inVoice) {
-    if (!status.dailyVoiceMinutes && !status.voiceStreak) return null;
-    
     return (
-      <div className="flex flex-col gap-2 p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
-        <div className="flex items-center gap-2 text-[var(--text-muted)]">
-          <span className="w-2 h-2 rounded-full bg-[var(--text-muted)]/30" />
-          <span className="text-[0.75rem]">vocal inactif</span>
+      <div className={`
+        flex flex-col gap-2 p-3 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]
+        transition-all duration-500 ease-out
+        ${isLoaded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}
+      `}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-[var(--text-muted)]">
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)]/30" />
+            <span className="text-[0.7rem]">vocal</span>
+          </div>
+          {(status.dailyVoiceMinutes || 0) > 0 && (
+            <span className="text-[0.7rem] text-[var(--text-muted)]">
+              {formatMinutes(status.dailyVoiceMinutes || 0)} aujourd'hui
+              {(status.dailyBonus || 0) > 0 && (
+                <span className="text-green-400 ml-1">+{status.dailyBonus?.toFixed(0)}€</span>
+              )}
+            </span>
+          )}
         </div>
         
-        {/* Stats du jour */}
-        {(status.dailyVoiceMinutes || 0) > 0 && (
-          <div className="flex items-center justify-between text-[0.7rem]">
-            <span className="text-[var(--text-muted)]">
-              aujourd'hui: {formatMinutes(status.dailyVoiceMinutes || 0)}
-            </span>
-            {(status.dailyBonus || 0) > 0 && (
-              <span className="text-green-400">+{status.dailyBonus?.toFixed(2)}€ bonus</span>
-            )}
-          </div>
-        )}
-        
-        {/* Streak */}
         {(status.voiceStreak || 0) >= 2 && (
-          <div className="flex items-center gap-1 text-[0.7rem] text-orange-400">
-            <span>🔥</span>
-            <span>{status.voiceStreak} jours</span>
-            {(status.streakBonus || 0) > 0 && (
-              <span className="text-[var(--text-muted)]">(+{status.streakBonus?.toFixed(2)}€)</span>
-            )}
+          <div className="text-[0.65rem] text-orange-400">
+            🔥 {status.voiceStreak}j streak
           </div>
         )}
       </div>
     );
   }
 
-  const sessionMinutes = Math.floor(sessionTime / 60);
-  const multiplierText = status.sessionMultiplier && status.sessionMultiplier > 1 
-    ? `x${status.sessionMultiplier.toFixed(2)}` 
-    : null;
-
+  // Mode actif - design compact
   return (
     <div className={`
-      flex flex-col gap-3 p-4 border bg-[rgba(34,197,94,0.05)]
-      transition-all duration-300
+      flex flex-col gap-2 p-3 border bg-[rgba(34,197,94,0.03)]
+      transition-all duration-500 ease-out
+      ${isLoaded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}
       ${flash 
-        ? "border-green-400 bg-[rgba(34,197,94,0.15)] shadow-[0_0_20px_rgba(34,197,94,0.3)]" 
-        : "border-green-500/30"
+        ? "border-green-400 bg-[rgba(34,197,94,0.12)] shadow-[0_0_15px_rgba(34,197,94,0.2)]" 
+        : "border-green-500/20"
       }
     `}>
-      {/* Header */}
+      {/* Ligne principale */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span 
-            className={`
-              w-2 h-2 rounded-full bg-green-500 
-              transition-opacity duration-300
-              ${blink ? "opacity-100" : "opacity-40"}
-            `}
-          />
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[0.75rem] text-green-400">
-              mining vocal
-              {status.channelName && (
-                <span className="text-[var(--text-muted)]"> • {status.channelName}</span>
-              )}
-            </span>
-            <span className="text-[0.7rem] text-[var(--text-muted)]">
-              +{status.earningsPerMin}€/min
-              {multiplierText && (
-                <span className="text-yellow-400 ml-1">({multiplierText})</span>
-              )}
-              {status.isHappyHour && (
-                <span className="text-purple-400 ml-1">🌙 happy hour!</span>
-              )}
-              {status.othersCount && status.othersCount > 1 && (
-                <span> • {status.othersCount} personnes</span>
-              )}
-            </span>
-          </div>
+        <div className="flex items-center gap-2">
+          <span className={`
+            w-1.5 h-1.5 rounded-full bg-green-500 
+            transition-opacity duration-300
+            ${blink ? "opacity-100" : "opacity-30"}
+          `} />
+          <span className="text-[0.7rem] text-green-400">
+            +{status.earningsPerMin}€/min
+            {multiplierText && <span className="text-yellow-400 ml-1">{multiplierText}</span>}
+            {status.isHappyHour && <span className="text-purple-400 ml-1">🌙</span>}
+          </span>
         </div>
         
         {/* Countdown */}
-        <div className="flex flex-col items-end">
+        <div className="flex items-center gap-1.5">
           <span className={`
-            text-[1.1rem] font-light tabular-nums transition-all duration-300
-            ${flash ? "text-white scale-110" : "text-green-400"}
+            text-[0.9rem] font-light tabular-nums transition-all duration-200
+            ${flash ? "text-white" : "text-green-400"}
           `}>
             {countdown}s
           </span>
-          <span className="text-[0.6rem] text-[var(--text-muted)]">
-            {flash ? `+${status.earningsPerMin}€!` : "prochain gain"}
-          </span>
         </div>
       </div>
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-green-500/20">
-        {/* Session actuelle */}
-        <div className="flex flex-col gap-1 p-2 rounded bg-[rgba(255,255,255,0.02)]">
-          <span className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)]">
-            cette session
-          </span>
-          <span className="text-[1rem] font-mono text-[var(--text)]">
-            {formatDuration(sessionTime)}
-          </span>
-        </div>
-
-        {/* Aujourd'hui */}
-        <div className="flex flex-col gap-1 p-2 rounded bg-[rgba(255,255,255,0.02)]">
-          <span className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)]">
-            aujourd'hui
-          </span>
-          <span className="text-[1rem] font-mono text-[var(--text)]">
-            {formatMinutes((status.dailyVoiceMinutes || 0))}
-          </span>
-        </div>
-      </div>
-
-      {/* Progress bar vers prochain palier */}
+      {/* Progress bar + bonus */}
       {status.nextTier && (
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between text-[0.65rem]">
-            <span className="text-[var(--text-muted)]">
-              {formatMinutes(status.dailyVoiceMinutes || 0)} / {status.nextTier.label}
-            </span>
-            <span className="text-green-400">
-              +{status.nextTier.bonus.toFixed(0)}€ bonus
-            </span>
-          </div>
-          <div className="h-1.5 bg-[rgba(255,255,255,0.1)] rounded-full overflow-hidden">
+        <div className="flex flex-col gap-1">
+          <div className="h-1 bg-[rgba(255,255,255,0.08)] rounded-full overflow-hidden">
             <div 
-              className="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full transition-all duration-500"
-              style={{ 
-                width: `${Math.min(100, ((status.dailyVoiceMinutes || 0) / status.nextTier.minutes) * 100)}%` 
-              }}
+              className="h-full bg-green-500/70 rounded-full transition-all duration-700"
+              style={{ width: `${progressPercent}%` }}
             />
+          </div>
+          <div className="flex items-center justify-between text-[0.6rem] text-[var(--text-muted)]">
+            <span>{formatMinutes(status.dailyVoiceMinutes || 0)}</span>
+            <span>
+              {status.nextTier.label} → <span className="text-green-400">+{status.nextTier.bonus.toFixed(0)}€</span>
+            </span>
           </div>
         </div>
       )}
 
-      {/* Bonus accumulés + Streak */}
-      <div className="flex items-center justify-between text-[0.7rem]">
-        {(status.dailyBonus || 0) > 0 && (
-          <span className="text-green-400">
-            💰 +{status.dailyBonus?.toFixed(2)}€ gagnés aujourd'hui
-          </span>
-        )}
-        
-        {(status.voiceStreak || 0) >= 2 && (
-          <span className="text-orange-400">
-            🔥 {status.voiceStreak}j streak (+{status.streakBonus?.toFixed(0)}€)
-          </span>
-        )}
-      </div>
+      {/* Streak (si applicable) */}
+      {(status.voiceStreak || 0) >= 2 && (
+        <div className="text-[0.6rem] text-orange-400">
+          🔥 {status.voiceStreak}j streak
+        </div>
+      )}
     </div>
   );
 }
