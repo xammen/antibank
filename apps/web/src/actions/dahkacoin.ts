@@ -99,8 +99,19 @@ interface TradeResult {
 // PHASE CONFIG - Dynamic probabilities
 // ============================================
 
-const PHASE_BASE_DURATION = { min: 60, max: 120 }; // 1-2min per phase
-const EVENT_CHECK_INTERVAL = { min: 60, max: 90 }; // 60-90s between event checks
+// Phase durations - designed for realistic crypto feel
+// Bull runs are SHORT and explosive, bear markets DRAG ON
+const PHASE_DURATIONS: Record<MarketPhase, { min: number; max: number }> = {
+  accumulation: { min: 90, max: 180 },   // 1.5-3min - time to position, quiet
+  markup: { min: 45, max: 90 },          // 45s-1.5min - building momentum
+  euphoria: { min: 20, max: 45 },        // 20-45s - SHORT! FOMO, explosive but brief
+  distribution: { min: 60, max: 120 },   // 1-2min - choppy, whales exiting
+  decline: { min: 90, max: 150 },        // 1.5-2.5min - slow bleed
+  capitulation: { min: 120, max: 240 },  // 2-4min - LONG pain, despair
+  recovery: { min: 90, max: 180 },       // 1.5-3min - slow rebuild, hope returning
+};
+
+const EVENT_CHECK_INTERVAL = { min: 45, max: 75 }; // 45-75s between event checks
 
 // Base transition probabilities - modified by momentum and price
 function calculatePhaseTransitions(
@@ -297,7 +308,7 @@ async function getMarketState(): Promise<MarketState> {
       price: DC_INITIAL_PRICE,
       phase: 'accumulation',
       phaseStartTime: now,
-      phaseDuration: randomInRange(PHASE_BASE_DURATION.min, PHASE_BASE_DURATION.max) * 1000,
+      phaseDuration: randomInRange(PHASE_DURATIONS.accumulation.min, PHASE_DURATIONS.accumulation.max) * 1000,
       momentum: 0,
       activeEvent: 'none',
       eventStartTime: 0,
@@ -331,7 +342,8 @@ async function getMarketState(): Promise<MarketState> {
   // Validate and fix corrupted state
   const now = Date.now();
   if (!parsed.phaseDuration || parsed.phaseDuration <= 0 || isNaN(parsed.phaseDuration)) {
-    parsed.phaseDuration = randomInRange(PHASE_BASE_DURATION.min, PHASE_BASE_DURATION.max) * 1000;
+    const dur = PHASE_DURATIONS[parsed.phase] || PHASE_DURATIONS.accumulation;
+    parsed.phaseDuration = randomInRange(dur.min, dur.max) * 1000;
     parsed.phaseStartTime = now;
   }
   if (!parsed.phaseStartTime || isNaN(parsed.phaseStartTime)) {
@@ -427,13 +439,15 @@ export async function tickPrice(): Promise<{
     const probs = calculatePhaseTransitions(state.phase, state.momentum, state.price);
     state.phase = pickPhase(probs);
     state.phaseStartTime = now;
-    state.phaseDuration = randomInRange(PHASE_BASE_DURATION.min, PHASE_BASE_DURATION.max) * 1000;
+    // Use phase-specific duration
+    const newPhaseDur = PHASE_DURATIONS[state.phase];
+    state.phaseDuration = randomInRange(newPhaseDur.min, newPhaseDur.max) * 1000;
     
     // Phase change affects momentum
     if (state.phase === 'euphoria' || state.phase === 'markup') {
-      state.momentum = Math.min(1, state.momentum + 0.2);
+      state.momentum = Math.min(1, state.momentum + 0.15);
     } else if (state.phase === 'capitulation' || state.phase === 'decline') {
-      state.momentum = Math.max(-1, state.momentum - 0.2);
+      state.momentum = Math.max(-1, state.momentum - 0.15);
     }
   }
 
@@ -929,7 +943,7 @@ export async function resetMarketState(): Promise<{ success: boolean }> {
     price: DC_INITIAL_PRICE,
     phase: 'accumulation',
     phaseStartTime: now,
-    phaseDuration: randomInRange(PHASE_BASE_DURATION.min, PHASE_BASE_DURATION.max) * 1000,
+    phaseDuration: randomInRange(PHASE_DURATIONS.accumulation.min, PHASE_DURATIONS.accumulation.max) * 1000,
     momentum: 0,
     activeEvent: 'none',
     eventStartTime: 0,
