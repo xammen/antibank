@@ -5,8 +5,16 @@ export const dynamic = "force-dynamic";
 
 // GET: Récupère l'état actuel du jeu
 export async function GET() {
-  const manager = getCrashManager();
-  const state = manager.getPublicState();
-  
-  return NextResponse.json(state);
+  try {
+    const manager = getCrashManager();
+    const state = await manager.getPublicState();
+    
+    return NextResponse.json(state);
+  } catch (error) {
+    console.error("Crash API error:", error);
+    return NextResponse.json(
+      { error: "erreur serveur", state: "waiting", currentMultiplier: 1, countdown: 10, players: [] },
+      { status: 500 }
+    );
+  }
 }
