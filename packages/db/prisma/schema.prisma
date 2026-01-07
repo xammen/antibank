@@ -160,6 +160,7 @@ model DiceGame {
   // Rematch votes
   player1WantsRematch Boolean @default(false)
   player2WantsRematch Boolean @default(false)
+  rematchGameId       String?  // ID de la nouvelle partie créée par rematch
   
   expiresAt    DateTime // Expire après 5 min si pas accepté
   createdAt    DateTime @default(now())
@@ -253,6 +254,7 @@ model PFCGame {
   // Rematch votes
   player1WantsRematch Boolean @default(false)
   player2WantsRematch Boolean @default(false)
+  rematchGameId       String?  // ID de la nouvelle partie créée par rematch
   
   expiresAt    DateTime
   createdAt    DateTime @default(now())

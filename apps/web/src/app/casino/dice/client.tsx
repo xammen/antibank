@@ -241,16 +241,17 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
     
     const checkRematch = async () => {
       const status = await checkDiceRematchStatus(pvpResult.gameId!);
+      
+      // Si un rematch a été créé, transition immédiate vers la nouvelle partie
+      if (status.rematchGameId) {
+        setPvpResult(null);
+        setRematchStatus(null);
+        loadPvpData();
+        return;
+      }
+      
       if (status.canRematch) {
         setRematchStatus({ myVote: status.myVote, theirVote: status.theirVote });
-        
-        // Si l'autre a aussi voté, on vérifie s'il y a une nouvelle partie
-        if (status.myVote && status.theirVote) {
-          // Nouvelle partie créée, refresh les challenges
-          setPvpResult(null);
-          setRematchStatus(null);
-          loadPvpData();
-        }
       }
     };
     

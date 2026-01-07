@@ -269,15 +269,17 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
     
     const checkRematch = async () => {
       const status = await checkPFCRematchStatus(pvpResult.gameId!);
+      
+      // Si un rematch a été créé, transition immédiate vers la nouvelle partie
+      if (status.rematchGameId) {
+        setPvpResult(null);
+        setRematchStatus(null);
+        loadPvpData();
+        return;
+      }
+      
       if (status.canRematch) {
         setRematchStatus({ myVote: status.myVote, theirVote: status.theirVote });
-        
-        // Si l'autre a aussi voté, nouvelle partie créée
-        if (status.myVote && status.theirVote) {
-          setPvpResult(null);
-          setRematchStatus(null);
-          loadPvpData();
-        }
       }
     };
     

@@ -538,13 +538,17 @@ export async function requestDiceRematch(
         },
       });
 
-      return created;
-    });
+      // Lier l'ancienne partie à la nouvelle (pour que le polling trouve le rematch)
+      await tx.diceGame.update({
+        where: { id: gameId },
+        data: { 
+          player1WantsRematch: false, 
+          player2WantsRematch: false,
+          rematchGameId: created.id,
+        },
+      });
 
-    // Reset les votes sur l'ancienne partie
-    await prisma.diceGame.update({
-      where: { id: gameId },
-      data: { player1WantsRematch: false, player2WantsRematch: false },
+      return created;
     });
 
     return { success: true, rematchStarted: true, newGameId: newGame.id };
@@ -565,6 +569,7 @@ export async function checkDiceRematchStatus(
   opponentId?: string;
   opponentName?: string;
   amount?: number;
+  rematchGameId?: string;
 }> {
   const session = await auth();
   if (!session?.user?.id) {
@@ -581,6 +586,16 @@ export async function checkDiceRematchStatus(
 
   if (!game || game.status !== "completed") {
     return { canRematch: false, myVote: false, theirVote: false };
+  }
+
+  // Si un rematch a déjà été créé, retourner l'ID directement
+  if (game.rematchGameId) {
+    return { 
+      canRematch: false, 
+      myVote: true, 
+      theirVote: true,
+      rematchGameId: game.rematchGameId,
+    };
   }
 
   // Vérifier que la partie n'est pas trop vieille

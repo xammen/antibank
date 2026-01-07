@@ -247,6 +247,10 @@ export async function startClickBattle(battleId: string): Promise<{
   }
 
   if (battle.status !== "accepted") {
+    // Si déjà en playing, retourner le startTime
+    if (battle.status === "playing" && battle.startedAt) {
+      return { success: true, startTime: battle.startedAt.getTime() };
+    }
     return { success: false, error: "duel pas encore accepte" };
   }
 
@@ -257,42 +261,90 @@ export async function startClickBattle(battleId: string): Promise<{
 
   const isPlayer1 = battle.player1Id === session.user.id;
 
-  // Marquer ce joueur comme prêt
+  // Marquer ce joueur comme prêt ET relire les valeurs en une seule requête
+  // Utilise RETURNING pour éviter la race condition
+  let updatedBattles: Array<{
+    player1Ready: boolean;
+    player2Ready: boolean;
+    startedAt: Date | null;
+  }>;
+  
   if (isPlayer1) {
-    await prisma.$executeRaw`
-      UPDATE "ClickBattle" SET "player1Ready" = true WHERE id = ${battleId}
+    updatedBattles = await prisma.$queryRaw`
+      UPDATE "ClickBattle" 
+      SET "player1Ready" = true
+      WHERE id = ${battleId}
+      RETURNING 
+        COALESCE("player1Ready", false) as "player1Ready",
+        COALESCE("player2Ready", false) as "player2Ready",
+        "startedAt"
     `;
   } else {
-    await prisma.$executeRaw`
-      UPDATE "ClickBattle" SET "player2Ready" = true WHERE id = ${battleId}
+    updatedBattles = await prisma.$queryRaw`
+      UPDATE "ClickBattle" 
+      SET "player2Ready" = true
+      WHERE id = ${battleId}
+      RETURNING 
+        COALESCE("player1Ready", false) as "player1Ready",
+        COALESCE("player2Ready", false) as "player2Ready",
+        "startedAt"
     `;
   }
 
-  // Vérifier si les deux sont maintenant prêts
-  const newPlayer1Ready = isPlayer1 ? true : battle.player1Ready;
-  const newPlayer2Ready = isPlayer1 ? battle.player2Ready : true;
+  const updated = updatedBattles[0];
+  if (!updated) {
+    return { success: false, error: "erreur mise a jour" };
+  }
 
-  if (newPlayer1Ready && newPlayer2Ready) {
+  // Si quelqu'un d'autre a déjà démarré entre temps
+  if (updated.startedAt) {
+    return { success: true, startTime: updated.startedAt.getTime() };
+  }
+
+  // Vérifier si les deux sont maintenant prêts (valeurs fraîches!)
+  if (updated.player1Ready && updated.player2Ready) {
     // Les deux sont prêts - démarrer dans 3 secondes (countdown sync)
     const countdownStart = new Date(Date.now() + 3000); // +3s pour le countdown
-    await prisma.$executeRaw`
-      UPDATE "ClickBattle" SET status = 'playing', "startedAt" = ${countdownStart} 
+    
+    // Utilise une condition pour éviter les doubles démarrages
+    const startResult = await prisma.$queryRaw<Array<{ startedAt: Date | null }>>`
+      UPDATE "ClickBattle" 
+      SET status = 'playing', "startedAt" = ${countdownStart} 
       WHERE id = ${battleId} AND "startedAt" IS NULL
+      RETURNING "startedAt"
     `;
-    return { 
-      success: true, 
-      startTime: countdownStart.getTime(),
-      player1Ready: true,
-      player2Ready: true
-    };
+    
+    // Si on a réussi à démarrer (startedAt retourné)
+    if (startResult.length > 0 && startResult[0].startedAt) {
+      return { 
+        success: true, 
+        startTime: startResult[0].startedAt.getTime(),
+        player1Ready: true,
+        player2Ready: true
+      };
+    }
+    
+    // Sinon quelqu'un d'autre a démarré, relire le startedAt
+    const finalBattle = await prisma.$queryRaw<Array<{ startedAt: Date }>>`
+      SELECT "startedAt" FROM "ClickBattle" WHERE id = ${battleId}
+    `;
+    
+    if (finalBattle[0]?.startedAt) {
+      return { 
+        success: true, 
+        startTime: finalBattle[0].startedAt.getTime(),
+        player1Ready: true,
+        player2Ready: true
+      };
+    }
   }
 
   // Attendre l'autre joueur
   return { 
     success: true, 
     waiting: true,
-    player1Ready: newPlayer1Ready,
-    player2Ready: newPlayer2Ready
+    player1Ready: updated.player1Ready,
+    player2Ready: updated.player2Ready
   };
 }
 
