@@ -116,21 +116,28 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
           {/* Side panel - Reorganized for clarity */}
           <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-[var(--line)] flex flex-col bg-[#080808]">
             
-            {/* Header: Balance + Game History inline */}
-            <div className="p-3 border-b border-[var(--line)] flex items-center justify-between gap-3">
+            {/* Header: Balance */}
+            <div className="p-3 border-b border-[var(--line)]">
               <Balance initialBalance={userBalance} />
-              {/* Compact history pills */}
-              <div className="hidden lg:flex gap-1 overflow-hidden">
-                {gameState.history.slice(0, 5).map((h) => (
+            </div>
+            
+            {/* History strip - visible on desktop */}
+            <div className="hidden lg:block p-3 border-b border-[var(--line)]">
+              <div className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-2">
+                historique
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {gameState.history.slice(0, 10).map((h) => (
                   <span
                     key={h.id}
-                    className={`text-[0.6rem] font-mono px-1.5 py-0.5 rounded ${
-                      h.crashPoint >= 5 ? "bg-green-500/20 text-green-400" : 
-                      h.crashPoint >= 2 ? "bg-yellow-500/20 text-yellow-400" : 
-                      "bg-red-500/20 text-red-400"
+                    className={`text-xs font-mono px-2 py-1 border ${
+                      h.crashPoint >= 10 ? "border-green-500/50 text-green-400 bg-green-500/10" :
+                      h.crashPoint >= 5 ? "border-green-500/30 text-green-400" : 
+                      h.crashPoint >= 2 ? "border-yellow-500/30 text-yellow-400" : 
+                      "border-red-500/30 text-red-400"
                     }`}
                   >
-                    {h.crashPoint.toFixed(2)}
+                    x{h.crashPoint.toFixed(2)}
                   </span>
                 ))}
               </div>
