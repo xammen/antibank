@@ -336,13 +336,25 @@ class CrashGameManager {
   }
 
   async cashOut(userId: string): Promise<{ success: boolean; multiplier?: number; profit?: number; bet?: number }> {
-    const game = await this.getOrCreateCurrentGame();
+    // Trouver le jeu en cours
+    const game = await prisma.crashGame.findFirst({
+      where: { status: "running" },
+      orderBy: { createdAt: "desc" },
+    });
     
-    if (game.status !== "running") {
+    if (!game) {
       return { success: false };
     }
 
-    const bet = game.bets.find(b => b.userId === userId && b.cashOutAt === null);
+    // Chercher le bet directement en DB (pas via le cache de game.bets)
+    const bet = await prisma.crashBet.findFirst({
+      where: {
+        crashGameId: game.id,
+        userId,
+        cashOutAt: null,
+      }
+    });
+    
     if (!bet) {
       return { success: false };
     }
