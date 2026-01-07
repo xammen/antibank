@@ -28,6 +28,113 @@ interface DahkaCoinClientProps {
   userId: string;
 }
 
+// Phase cycle order (for timeline)
+const PHASE_CYCLE = [
+  'accumulation',
+  'markup', 
+  'euphoria',
+  'distribution',
+  'decline',
+  'capitulation',
+  'recovery',
+] as const;
+
+type MarketPhase = typeof PHASE_CYCLE[number];
+
+// Phase config
+const PHASE_CONFIG: Record<MarketPhase, { 
+  emoji: string; 
+  name: string; 
+  color: string;
+  bgColor: string;
+  description: string;
+  risk: 'low' | 'medium' | 'high' | 'extreme';
+}> = {
+  accumulation: { 
+    emoji: '📦', 
+    name: 'accumulation', 
+    color: 'text-gray-400',
+    bgColor: 'bg-gray-500',
+    description: 'marche calme, bon moment pour acheter',
+    risk: 'low',
+  },
+  markup: { 
+    emoji: '📈', 
+    name: 'hausse', 
+    color: 'text-green-400',
+    bgColor: 'bg-green-500',
+    description: 'tendance haussiere, momentum positif',
+    risk: 'medium',
+  },
+  euphoria: { 
+    emoji: '🚀', 
+    name: 'EUPHORIE', 
+    color: 'text-green-300',
+    bgColor: 'bg-green-400',
+    description: 'MOON! gains extremes possibles',
+    risk: 'extreme',
+  },
+  distribution: { 
+    emoji: '🎭', 
+    name: 'distribution', 
+    color: 'text-yellow-400',
+    bgColor: 'bg-yellow-500',
+    description: 'top en formation, attention!',
+    risk: 'high',
+  },
+  decline: { 
+    emoji: '📉', 
+    name: 'baisse', 
+    color: 'text-red-400',
+    bgColor: 'bg-red-500',
+    description: 'tendance baissiere, prudence',
+    risk: 'medium',
+  },
+  capitulation: { 
+    emoji: '💀', 
+    name: 'CAPITULATION', 
+    color: 'text-red-300',
+    bgColor: 'bg-red-400',
+    description: 'CRASH! pertes extremes possibles',
+    risk: 'extreme',
+  },
+  recovery: { 
+    emoji: '🌱', 
+    name: 'recuperation', 
+    color: 'text-blue-400',
+    bgColor: 'bg-blue-500',
+    description: 'rebond en cours, opportunite?',
+    risk: 'low',
+  },
+};
+
+// Phase transitions probabilities
+const PHASE_TRANSITIONS: Record<MarketPhase, Partial<Record<MarketPhase, number>>> = {
+  accumulation: { markup: 0.60, decline: 0.25, accumulation: 0.15 },
+  markup: { euphoria: 0.50, distribution: 0.30, markup: 0.20 },
+  euphoria: { distribution: 0.70, capitulation: 0.20, euphoria: 0.10 },
+  distribution: { decline: 0.50, capitulation: 0.30, markup: 0.15, distribution: 0.05 },
+  decline: { capitulation: 0.40, recovery: 0.35, decline: 0.25 },
+  capitulation: { recovery: 0.80, capitulation: 0.15, accumulation: 0.05 },
+  recovery: { accumulation: 0.60, markup: 0.30, decline: 0.10 },
+};
+
+// Event probabilities per phase (base probabilities * multipliers)
+const EVENT_BASE_PROBS = {
+  pump: 0.003,  // whale_pump + mega_pump + fomo combined per second
+  crash: 0.002, // whale_dump + flash_crash + panic combined per second
+};
+
+const PHASE_EVENT_MULTIPLIERS: Record<MarketPhase, { pump: number; crash: number }> = {
+  accumulation: { pump: 1.5, crash: 0.3 },
+  markup: { pump: 2.0, crash: 0.5 },
+  euphoria: { pump: 0.5, crash: 2.5 },  // More likely to crash from euphoria
+  distribution: { pump: 0.5, crash: 2.0 },
+  decline: { pump: 0.5, crash: 1.5 },
+  capitulation: { pump: 1.5, crash: 0.3 },  // More likely to pump from bottom
+  recovery: { pump: 1.5, crash: 0.5 },
+};
+
 // Animated price display
 function AnimatedPrice({ value, momentum }: { value: number; momentum: number }) {
   const [displayValue, setDisplayValue] = useState(value);
@@ -40,7 +147,6 @@ function AnimatedPrice({ value, momentum }: { value: number; momentum: number })
       setIsIncreasing(value > prevValue.current);
       setIsDecreasing(value < prevValue.current);
       
-      // Animate to new value
       const diff = value - prevValue.current;
       const steps = 10;
       const stepValue = diff / steps;
@@ -89,9 +195,196 @@ function AnimatedPrice({ value, momentum }: { value: number; momentum: number })
   );
 }
 
+// Phase Timeline Component
+function PhaseTimeline({ 
+  currentPhase, 
+  phaseProgress,
+  momentum,
+}: { 
+  currentPhase: MarketPhase; 
+  phaseProgress: number;
+  momentum: number;
+}) {
+  const currentIndex = PHASE_CYCLE.indexOf(currentPhase);
+  const config = PHASE_CONFIG[currentPhase];
+  const transitions = PHASE_TRANSITIONS[currentPhase];
+  const eventMultipliers = PHASE_EVENT_MULTIPLIERS[currentPhase];
+  
+  // Calculate event probabilities for next 60 seconds
+  const pumpChance = Math.min(99, Math.round(EVENT_BASE_PROBS.pump * eventMultipliers.pump * 60 * 100));
+  const crashChance = Math.min(99, Math.round(EVENT_BASE_PROBS.crash * eventMultipliers.crash * 60 * 100));
+  
+  // Get most likely next phases
+  const sortedTransitions = Object.entries(transitions)
+    .sort(([, a], [, b]) => (b || 0) - (a || 0))
+    .slice(0, 3);
+
+  // Safe progress value
+  const safeProgress = isNaN(phaseProgress) ? 0 : Math.max(0, Math.min(1, phaseProgress));
+
+  return (
+    <div className="border border-[var(--line)] p-4 space-y-4">
+      {/* Current phase header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-2xl">{config.emoji}</span>
+          <div>
+            <p className={`font-medium ${config.color}`}>{config.name}</p>
+            <p className="text-xs text-[var(--text-muted)]">{config.description}</p>
+          </div>
+        </div>
+        <div className={`px-2 py-1 text-xs rounded ${
+          config.risk === 'low' ? 'bg-green-500/20 text-green-400' :
+          config.risk === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+          config.risk === 'high' ? 'bg-orange-500/20 text-orange-400' :
+          'bg-red-500/20 text-red-400 animate-pulse'
+        }`}>
+          risque {config.risk === 'extreme' ? 'EXTREME' : config.risk}
+        </div>
+      </div>
+
+      {/* Phase cycle timeline */}
+      <div className="relative">
+        <div className="flex gap-1">
+          {PHASE_CYCLE.map((phase, idx) => {
+            const phaseConfig = PHASE_CONFIG[phase];
+            const isCurrentPhase = idx === currentIndex;
+            const isPast = idx < currentIndex;
+            
+            return (
+              <div 
+                key={phase}
+                className="flex-1 relative group"
+              >
+                {/* Phase bar */}
+                <div className={`h-8 rounded-sm relative overflow-hidden transition-all ${
+                  isCurrentPhase 
+                    ? `${phaseConfig.bgColor} ring-2 ring-white/50` 
+                    : isPast 
+                      ? 'bg-gray-700' 
+                      : 'bg-gray-800'
+                }`}>
+                  {/* Progress fill for current phase */}
+                  {isCurrentPhase && (
+                    <div 
+                      className="absolute inset-y-0 left-0 bg-white/30 transition-all duration-1000"
+                      style={{ width: `${safeProgress * 100}%` }}
+                    />
+                  )}
+                  {/* Phase emoji centered */}
+                  <div className="absolute inset-0 flex items-center justify-center text-sm">
+                    {phaseConfig.emoji}
+                  </div>
+                </div>
+                
+                {/* Tooltip on hover */}
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black border border-[var(--line)] text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                  {phaseConfig.name}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        
+        {/* Progress percentage under current phase */}
+        <div className="flex gap-1 mt-1">
+          {PHASE_CYCLE.map((phase, idx) => (
+            <div key={phase} className="flex-1 text-center">
+              {idx === currentIndex && (
+                <span className="text-xs text-[var(--text-muted)]">
+                  {Math.round(safeProgress * 100)}%
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Next phase probabilities */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <p className="text-xs text-[var(--text-muted)] mb-2">prochaine phase probable</p>
+          <div className="space-y-1">
+            {sortedTransitions.map(([nextPhase, probability]) => {
+              const nextConfig = PHASE_CONFIG[nextPhase as MarketPhase];
+              return (
+                <div key={nextPhase} className="flex items-center gap-2">
+                  <span>{nextConfig.emoji}</span>
+                  <div className="flex-1 h-2 bg-gray-800 rounded overflow-hidden">
+                    <div 
+                      className={`h-full ${nextConfig.bgColor} opacity-70`}
+                      style={{ width: `${(probability || 0) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-[var(--text-muted)] w-8">
+                    {Math.round((probability || 0) * 100)}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Event chances */}
+        <div>
+          <p className="text-xs text-[var(--text-muted)] mb-2">chance d'event (60s)</p>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-green-400">🚀</span>
+              <div className="flex-1 h-2 bg-gray-800 rounded overflow-hidden">
+                <div 
+                  className="h-full bg-green-500"
+                  style={{ width: `${pumpChance}%` }}
+                />
+              </div>
+              <span className="text-xs text-green-400 w-8">{pumpChance}%</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-red-400">💥</span>
+              <div className="flex-1 h-2 bg-gray-800 rounded overflow-hidden">
+                <div 
+                  className="h-full bg-red-500"
+                  style={{ width: `${crashChance}%` }}
+                />
+              </div>
+              <span className="text-xs text-red-400 w-8">{crashChance}%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Momentum indicator */}
+      <div>
+        <p className="text-xs text-[var(--text-muted)] mb-1">momentum</p>
+        <div className="h-3 bg-gray-800 rounded overflow-hidden relative">
+          {/* Center marker */}
+          <div className="absolute inset-y-0 left-1/2 w-px bg-gray-600" />
+          {/* Momentum bar */}
+          <div 
+            className={`absolute inset-y-0 transition-all duration-300 ${
+              momentum >= 0 ? 'bg-green-500 left-1/2' : 'bg-red-500 right-1/2'
+            }`}
+            style={{ 
+              width: `${Math.abs(momentum) * 50}%`,
+              [momentum >= 0 ? 'left' : 'right']: '50%'
+            }}
+          />
+        </div>
+        <div className="flex justify-between text-xs text-[var(--text-muted)] mt-1">
+          <span>bearish</span>
+          <span className={momentum > 0.3 ? 'text-green-400' : momentum < -0.3 ? 'text-red-400' : ''}>
+            {momentum > 0 ? '+' : ''}{(momentum * 100).toFixed(0)}%
+          </span>
+          <span>bullish</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
   const [currentPrice, setCurrentPrice] = useState<number>(1);
-  const [phase, setPhase] = useState<string>("accumulation");
+  const [phase, setPhase] = useState<MarketPhase>("accumulation");
   const [phaseProgress, setPhaseProgress] = useState<number>(0);
   const [volatility, setVolatility] = useState<string>("normal");
   const [momentum, setMomentum] = useState<number>(0);
@@ -121,8 +414,8 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
     ]);
 
     setCurrentPrice(state.currentPrice);
-    setPhase(state.phase);
-    setPhaseProgress(state.phaseProgress);
+    setPhase(state.phase as MarketPhase);
+    setPhaseProgress(state.phaseProgress || 0);
     setVolatility(state.volatility);
     setMomentum(state.momentum);
     setActiveEvent(state.activeEvent);
@@ -156,8 +449,8 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
         const result = await tickPrice();
         
         setCurrentPrice(result.price);
-        setPhase(result.phase);
-        setPhaseProgress(result.phaseProgress);
+        setPhase(result.phase as MarketPhase);
+        setPhaseProgress(result.phaseProgress || 0);
         setVolatility(result.volatility);
         setMomentum(result.momentum);
         setActiveEvent(result.activeEvent);
@@ -214,7 +507,7 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       ctx.fillStyle = "#666";
       ctx.font = "12px JetBrains Mono";
       ctx.textAlign = "center";
-      ctx.fillText("en attente de données...", width / 2, height / 2);
+      ctx.fillText("en attente de donnees...", width / 2, height / 2);
       return;
     }
 
@@ -293,7 +586,6 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       const x = width - padding;
       const y = padding + (height - 2 * padding) * (1 - (lastPoint.price - minPrice) / priceRange);
       
-      // Glow effect
       ctx.shadowColor = momentum > 0.2 ? "#4ade80" : momentum < -0.2 ? "#f87171" : "#888";
       ctx.shadowBlur = 10;
       
@@ -351,7 +643,6 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       setTradeResult({ success: true, message: msg });
       setTradeAmount("");
       
-      // Update local state
       if (result.newDCBalance !== undefined) {
         setUserDC(result.newDCBalance);
       }
@@ -362,32 +653,6 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
     }
 
     setIsTrading(false);
-  };
-
-  const getPhaseDescription = () => {
-    const phases: Record<string, string> = {
-      accumulation: "accumulation",
-      markup: "hausse",
-      euphoria: "euphorie",
-      distribution: "distribution",
-      decline: "baisse",
-      capitulation: "capitulation",
-      recovery: "recuperation",
-    };
-    return phases[phase] || phase;
-  };
-
-  const getPhaseColor = () => {
-    const colors: Record<string, string> = {
-      accumulation: "text-gray-400",
-      markup: "text-green-400",
-      euphoria: "text-green-300",
-      distribution: "text-yellow-400",
-      decline: "text-red-400",
-      capitulation: "text-red-300",
-      recovery: "text-blue-400",
-    };
-    return colors[phase] || "text-gray-400";
   };
 
   const getEventBanner = () => {
@@ -422,7 +687,7 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
   }
 
   return (
-    <div className="w-full max-w-2xl space-y-8">
+    <div className="w-full max-w-2xl space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <Link href="/dashboard" className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
@@ -435,6 +700,13 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       {/* Event banner */}
       {getEventBanner()}
 
+      {/* Phase Timeline */}
+      <PhaseTimeline 
+        currentPhase={phase} 
+        phaseProgress={phaseProgress}
+        momentum={momentum}
+      />
+
       {/* Price card */}
       <div className="border border-[var(--line)] p-6">
         <div className="flex items-center justify-between mb-4">
@@ -442,21 +714,15 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
             <p className="text-[var(--text-muted)] text-sm">prix actuel</p>
             <AnimatedPrice value={currentPrice} momentum={momentum} />
           </div>
-          <div className="text-right space-y-1">
-            <div className="flex items-center justify-end gap-2">
-              <span className="text-[var(--text-muted)] text-xs">phase:</span>
-              <span className={`text-xs ${getPhaseColor()}`}>
-                {getPhaseDescription()}
-              </span>
-            </div>
-            <div className="flex items-center justify-end gap-2">
-              <span className="text-[var(--text-muted)] text-xs">progression:</span>
-              <span className="text-xs text-gray-400">{(phaseProgress * 100).toFixed(0)}%</span>
-            </div>
-            <div className="flex items-center justify-end gap-2">
-              <span className="text-[var(--text-muted)] text-xs">volatilite:</span>
-              <span className="text-xs text-gray-400">{volatility}</span>
-            </div>
+          <div className="text-right">
+            <p className="text-xs text-[var(--text-muted)]">volatilite</p>
+            <p className={`text-sm ${
+              volatility === 'calme' ? 'text-gray-400' :
+              volatility === 'normal' ? 'text-gray-300' :
+              volatility === 'volatile' ? 'text-yellow-400' :
+              volatility === 'extreme' ? 'text-orange-400' :
+              'text-red-400 animate-pulse'
+            }`}>{volatility}</p>
           </div>
         </div>
 
@@ -630,14 +896,6 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
             ))}
           </div>
         )}
-      </div>
-
-      {/* Info */}
-      <div className="text-[var(--text-muted)] text-xs space-y-1">
-        <p>• le prix evolue avec des phases de marche realistes</p>
-        <p>• phases: accumulation → hausse → euphorie → distribution → baisse → capitulation → recuperation</p>
-        <p>• evenements extremes: whale pump/dump, flash crash, mega pump...</p>
-        <p>• frais de vente: 2%</p>
       </div>
     </div>
   );
