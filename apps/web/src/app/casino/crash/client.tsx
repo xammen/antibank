@@ -212,11 +212,21 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
               </div>
             )}
 
-            {/* Rules */}
-            <div className="p-3 border-t border-[var(--line)] text-[0.55rem] text-[var(--text-muted)] space-y-0.5">
-              <p>mise pendant le countdown</p>
-              <p>cashout avant le crash</p>
-              <p>5% taxe sur les gains</p>
+            {/* Stats & Rules */}
+            <div className="p-3 border-t border-[var(--line)] text-[0.55rem] text-[var(--text-muted)]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="uppercase tracking-widest">stats</span>
+                <span className="text-[0.5rem]">5% taxe</span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mb-2">
+                <span>~52% <span className="text-[var(--text)]">&lt;2x</span></span>
+                <span>~11% <span className="text-green-400">&gt;10x</span></span>
+                <span>~79% <span className="text-[var(--text)]">&lt;5x</span></span>
+                <span>~2% <span className="text-green-400">&gt;50x</span></span>
+              </div>
+              <div className="text-[0.5rem] opacity-60">
+                1% legendary (50-100x) · 2% epic (15-50x)
+              </div>
             </div>
           </div>
         </div>
