@@ -84,11 +84,29 @@ class CrashGameManager {
       }
     }
 
-    // Créer une nouvelle partie
+    // Créer une nouvelle partie (avec protection contre les race conditions)
     return this.createNewGame();
   }
 
   private async createNewGame() {
+    // Vérifier une dernière fois qu'il n'y a pas de partie waiting/running
+    // (protection contre race condition entre requêtes concurrentes)
+    const existingGame = await prisma.crashGame.findFirst({
+      where: { status: { in: ["waiting", "running"] } },
+      include: {
+        bets: {
+          include: {
+            user: { select: { id: true, discordUsername: true } }
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    if (existingGame) {
+      return existingGame;
+    }
+
     return prisma.crashGame.create({
       data: {
         crashPoint: new Prisma.Decimal(generateCrashPoint()),
@@ -178,26 +196,8 @@ class CrashGameManager {
     } else if (game.status === "crashed") {
       currentMultiplier = crashPoint;
       countdown = 0;
-      
-      // Calculer le temps restant avant nouvelle partie
-      if (game.crashedAt) {
-        const timeSinceCrash = now - game.crashedAt.getTime();
-        if (timeSinceCrash >= POST_CRASH_DELAY_MS) {
-          // Créer nouvelle partie
-          const newGame = await this.createNewGame();
-          return {
-            id: newGame.id,
-            state: "waiting",
-            currentMultiplier: 1.00,
-            countdown: CRASH_CONFIG.COUNTDOWN_SECONDS,
-            startTime: null,
-            players: [],
-            skipVotes: 0,
-            skipVotesNeeded: MIN_PLAYERS_FOR_SKIP,
-            history,
-          };
-        }
-      }
+      // Note: la création de nouvelle partie est gérée par getOrCreateCurrentGame()
+      // Ici on retourne juste l'état crashed, le prochain poll créera la nouvelle partie
     }
 
     const players: CrashPlayerPublic[] = game.bets.map(bet => ({

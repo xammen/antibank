@@ -25,8 +25,8 @@ export function generateCrashPoint(): number {
   // Cap à x50 max
   crashPoint = Math.min(crashPoint, 50);
   
-  // Minimum x1.01 (sinon crash instantané car ln(1) = 0)
-  crashPoint = Math.max(crashPoint, 1.01);
+  // Minimum x1.10 pour que le jeu dure au moins ~1.5 secondes
+  crashPoint = Math.max(crashPoint, 1.10);
   
   return Math.floor(crashPoint * 100) / 100;
 }
