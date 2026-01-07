@@ -30,6 +30,8 @@ interface CrashGameState {
   skipVotes: number;
   skipVotesNeeded: number;
   history: CrashHistoryEntry[];
+  isBigMultiplierRound: boolean;
+  nextBigMultiplierIn: number;
 }
 
 interface UseCrashGameReturn {

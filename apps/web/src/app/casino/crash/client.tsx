@@ -53,32 +53,6 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
 
         {/* Main content */}
         <div className="flex-1 flex flex-col lg:flex-row">
-          {/* Left sidebar - History */}
-          <div className="hidden lg:block w-48 border-r border-[var(--line)] p-3 overflow-auto">
-            <p className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">
-              derniers crashs
-            </p>
-            <div className="flex flex-col gap-1.5">
-              {gameState.history.length === 0 && (
-                <p className="text-xs text-[var(--text-muted)]">-</p>
-              )}
-              {gameState.history.map((h, i) => (
-                <div
-                  key={h.id}
-                  className={`text-sm font-mono px-2 py-1 rounded text-center ${
-                    h.crashPoint < 2
-                      ? "bg-red-500/20 text-red-400"
-                      : h.crashPoint < 5
-                      ? "bg-yellow-500/20 text-yellow-400"
-                      : "bg-green-500/20 text-green-400"
-                  }`}
-                >
-                  x{h.crashPoint.toFixed(2)}
-                </div>
-              ))}
-            </div>
-          </div>
-
           {/* Graph area */}
           <div className="flex-1 h-[50vh] lg:h-auto relative">
             <CrashGraph
@@ -89,17 +63,48 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
               startTime={gameState.startTime}
             />
             
+            {/* Big Multiplier Indicator */}
+            {gameState.nextBigMultiplierIn <= 5 && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10">
+                {gameState.nextBigMultiplierIn === 0 ? (
+                  <div className="px-4 py-1.5 border border-transparent bg-clip-padding animate-pulse"
+                    style={{
+                      background: "linear-gradient(#0a0a0a, #0a0a0a) padding-box, linear-gradient(90deg, #ff0080, #ff8c00, #40e0d0, #ff0080) border-box",
+                      backgroundSize: "300% 100%",
+                      animation: "rgb-border 3s linear infinite, pulse 1.5s ease-in-out infinite",
+                    }}>
+                    <span className="text-xs uppercase tracking-widest"
+                      style={{
+                        background: "linear-gradient(90deg, #ff0080, #ff8c00, #40e0d0)",
+                        backgroundSize: "200% auto",
+                        WebkitBackgroundClip: "text",
+                        WebkitTextFillColor: "transparent",
+                        animation: "rgb-text 2s linear infinite",
+                      }}>
+                      big multiplier (30%)
+                    </span>
+                  </div>
+                ) : (
+                  <div className="px-3 py-1 border border-[var(--line)] bg-[var(--bg)]/80 backdrop-blur-sm">
+                    <span className="text-[0.65rem] text-[var(--text-muted)]">
+                      big multi dans <span className="text-[var(--text)] tabular-nums">{gameState.nextBigMultiplierIn}</span> partie{gameState.nextBigMultiplierIn > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+            
             {/* Mobile history strip */}
-            <div className="lg:hidden absolute top-2 left-2 right-2 flex gap-1 overflow-x-auto pb-1">
+            <div className="lg:hidden absolute bottom-2 left-2 right-2 flex gap-1 overflow-x-auto pb-1">
               {gameState.history.slice(0, 8).map((h) => (
                 <span
                   key={h.id}
-                  className={`text-xs font-mono px-2 py-0.5 rounded shrink-0 ${
+                  className={`text-xs font-mono px-2 py-0.5 shrink-0 border ${
                     h.crashPoint < 2
-                      ? "bg-red-500/30 text-red-400"
+                      ? "border-red-500/30 text-red-400"
                       : h.crashPoint < 5
-                      ? "bg-yellow-500/30 text-yellow-400"
-                      : "bg-green-500/30 text-green-400"
+                      ? "border-yellow-500/30 text-yellow-400"
+                      : "border-green-500/30 text-green-400"
                   }`}
                 >
                   x{h.crashPoint.toFixed(2)}
@@ -109,7 +114,7 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
           </div>
 
           {/* Side panel */}
-          <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-[var(--line)] flex flex-col">
+          <div className="w-full lg:w-72 border-t lg:border-t-0 lg:border-l border-[var(--line)] flex flex-col">
             {/* Balance */}
             <div className="p-4 border-b border-[var(--line)]">
               <Balance initialBalance={userBalance} />
@@ -117,7 +122,7 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
 
             {/* Skip Vote (only during waiting and if user has bet) */}
             {gameState.state === "waiting" && userBet && gameState.countdown > 3 && (
-              <div className="p-3 border-b border-[var(--line)] bg-[rgba(255,255,255,0.02)]">
+              <div className="p-3 border-b border-[var(--line)]">
                 <button
                   onClick={voteSkip}
                   className="w-full py-2 text-xs border border-[var(--line)] hover:border-[var(--text-muted)] 
@@ -140,29 +145,29 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
             </div>
 
             {/* Players list */}
-            <div className="border-t border-[var(--line)] p-4 max-h-48 overflow-auto">
-              <p className="text-[0.7rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">
+            <div className="border-t border-[var(--line)] p-3 max-h-36 overflow-auto">
+              <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-2">
                 joueurs ({gameState.players.length})
               </p>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1">
                 {gameState.players.length === 0 && (
-                  <p className="text-xs text-[var(--text-muted)]">aucun joueur</p>
+                  <p className="text-xs text-[var(--text-muted)]">aucun</p>
                 )}
                 {gameState.players.map((player) => (
                   <div
                     key={player.odrzerId}
-                    className={`flex items-center justify-between text-xs p-2 border border-[var(--line)] ${
+                    className={`flex items-center justify-between text-xs px-2 py-1.5 border ${
                       player.cashedOut 
-                        ? "bg-green-500/10 border-green-500/30" 
+                        ? "border-green-500/30 bg-green-500/5" 
                         : gameState.state === "crashed" 
-                          ? "bg-red-500/10 border-red-500/30"
-                          : ""
+                          ? "border-red-500/30 bg-red-500/5"
+                          : "border-[var(--line)]"
                     }`}
                   >
-                    <span className="truncate max-w-[100px]">
+                    <span className="truncate max-w-[80px] text-[var(--text-muted)]">
                       {player.odrzerame.toLowerCase()}
                     </span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 tabular-nums">
                       <span className="text-[var(--text-muted)]">{player.bet}€</span>
                       {player.cashedOut && (
                         <span className="text-green-400">
@@ -170,12 +175,51 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
                         </span>
                       )}
                       {!player.cashedOut && gameState.state === "crashed" && (
-                        <span className="text-red-400">perdu</span>
+                        <span className="text-red-400">-</span>
                       )}
                     </div>
                   </div>
                 ))}
               </div>
+            </div>
+
+            {/* History */}
+            {gameState.history.length > 0 && (
+              <div className="hidden lg:block border-t border-[var(--line)] max-h-40 overflow-y-auto">
+                <div className="p-2 border-b border-[var(--line)] sticky top-0 bg-[var(--bg)]">
+                  <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)]">historique</p>
+                </div>
+                <div className="divide-y divide-[var(--line)]">
+                  {gameState.history.map((h) => (
+                    <div 
+                      key={h.id} 
+                      className={`px-3 py-1.5 flex items-center justify-between ${
+                        h.crashPoint >= 5 ? "bg-green-500/5" : 
+                        h.crashPoint >= 2 ? "bg-yellow-500/5" : 
+                        "bg-red-500/5"
+                      }`}
+                    >
+                      <span className={`text-sm font-mono tabular-nums ${
+                        h.crashPoint >= 5 ? "text-green-400" : 
+                        h.crashPoint >= 2 ? "text-yellow-400" : 
+                        "text-red-400"
+                      }`}>
+                        x{h.crashPoint.toFixed(2)}
+                      </span>
+                      {h.crashPoint >= 5 && (
+                        <span className="text-[0.55rem] text-green-400/60 uppercase">big</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Rules */}
+            <div className="p-3 border-t border-[var(--line)] text-[0.55rem] text-[var(--text-muted)] space-y-0.5">
+              <p>mise pendant le countdown</p>
+              <p>cashout avant le crash</p>
+              <p>5% taxe sur les gains</p>
             </div>
           </div>
         </div>

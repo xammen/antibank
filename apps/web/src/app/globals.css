@@ -137,3 +137,14 @@ button {
     @apply border-border;
   }
 }
+
+/* RGB animation for big multiplier */
+@keyframes rgb-border {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 300% 50%; }
+}
+
+@keyframes rgb-text {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
