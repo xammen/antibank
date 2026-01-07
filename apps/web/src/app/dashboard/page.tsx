@@ -109,6 +109,13 @@ export default async function Dashboard() {
             <span className="text-lg">⚖️</span>
             <span className="text-sm uppercase tracking-widest">justice</span>
           </Link>
+          <Link
+            href="/dahkacoin"
+            className="col-span-2 flex items-center justify-center gap-2 p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)] hover:bg-[rgba(255,255,255,0.03)] hover:border-[var(--text-muted)] transition-all duration-200"
+          >
+            <span className="text-lg">📈</span>
+            <span className="text-sm uppercase tracking-widest">dahkacoin</span>
+          </Link>
         </div>
 
         {/* Leaderboard */}

@@ -16,6 +16,9 @@ model User {
   discordAvatar   String?
 
   balance        Decimal @default(0) @db.Decimal(10, 2)
+  dahkaCoins     Decimal @default(0) @db.Decimal(10, 4) // DahkaCoin balance
+  dcAvgBuyPrice  Decimal? @db.Decimal(10, 4)            // Prix moyen d'achat (null si jamais investi)
+  
   clicksToday    Int     @default(0)
   lastClickReset DateTime @default(now())
   clickerIcon    String  @default("cookie") // "cookie", "cookie-bw", "cookie-cute"
@@ -432,4 +435,37 @@ model RevolutionBallot {
   @@unique([revolutionId, odrzerId])
   @@index([revolutionId])
   @@index([odrzerId])
+}
+
+// ============================================
+// PHASE 5: DAHKACOIN (Crypto Fictive)
+// ============================================
+
+// Historique des prix du DahkaCoin
+model DahkaCoinPrice {
+  id        String   @id @default(cuid())
+  
+  price     Decimal  @db.Decimal(10, 4) // Prix en euros
+  trend     Int      @default(0)        // Tendance actuelle (-2 à +2)
+  
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// Transactions DahkaCoin (pour historique)
+model DahkaCoinTx {
+  id        String   @id @default(cuid())
+  
+  userId    String
+  type      String   // "buy" ou "sell"
+  
+  dcAmount  Decimal  @db.Decimal(10, 4) // Quantité de DC
+  euroAmount Decimal @db.Decimal(10, 2) // Montant en euros
+  price     Decimal  @db.Decimal(10, 4) // Prix au moment de la transaction
+  
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }

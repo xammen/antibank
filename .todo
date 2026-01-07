@@ -1,0 +1,6 @@
+# AntiBank - Phase 5: DahkaCoin
+
+## Tasks
+- [x] Add DahkaCoin database models (DahkaCoinPrice table, user DC fields)
+- [x] Create DahkaCoin server actions (buy, sell, price history, update price)
+- [x] Create DahkaCoin UI page with price chart and trading interface
