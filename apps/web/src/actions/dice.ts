@@ -448,6 +448,149 @@ export interface PlayVsBotResult {
  * Joue un duel de dés contre le bot
  * Le bot lance des dés 100% aléatoires - aucun avantage
  */
+/**
+ * Demande un rematch après une partie terminée
+ * Si les deux joueurs demandent, une nouvelle partie est automatiquement lancée
+ */
+export async function requestDiceRematch(
+  gameId: string
+): Promise<{ success: boolean; error?: string; rematchStarted?: boolean; newGameId?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "non connecté" };
+  }
+
+  const game = await prisma.diceGame.findUnique({
+    where: { id: gameId },
+    include: {
+      player1: { select: { id: true, balance: true, discordUsername: true } },
+      player2: { select: { id: true, balance: true, discordUsername: true } },
+    },
+  });
+
+  if (!game) {
+    return { success: false, error: "partie introuvable" };
+  }
+
+  if (game.status !== "completed") {
+    return { success: false, error: "partie non terminée" };
+  }
+
+  // Vérifier que l'utilisateur était dans la partie
+  const isPlayer1 = game.player1Id === session.user.id;
+  const isPlayer2 = game.player2Id === session.user.id;
+  if (!isPlayer1 && !isPlayer2) {
+    return { success: false, error: "tu n'étais pas dans cette partie" };
+  }
+
+  // Vérifier que la partie n'est pas trop vieille (max 5 min)
+  if (game.completedAt && Date.now() - game.completedAt.getTime() > 5 * 60 * 1000) {
+    return { success: false, error: "rematch expiré" };
+  }
+
+  const amount = Number(game.amount);
+
+  // Vérifier les soldes
+  if (Number(game.player1?.balance) < amount) {
+    return { success: false, error: "solde insuffisant (joueur 1)" };
+  }
+  if (Number(game.player2?.balance) < amount) {
+    return { success: false, error: "solde insuffisant (joueur 2)" };
+  }
+
+  // Mettre à jour le vote rematch
+  const updatedGame = await prisma.diceGame.update({
+    where: { id: gameId },
+    data: isPlayer1 
+      ? { player1WantsRematch: true }
+      : { player2WantsRematch: true },
+  });
+
+  // Vérifier si les deux joueurs veulent un rematch
+  const bothWantRematch = isPlayer1 
+    ? (true && updatedGame.player2WantsRematch)
+    : (updatedGame.player1WantsRematch && true);
+
+  if (bothWantRematch) {
+    // Créer automatiquement une nouvelle partie
+    const newGame = await prisma.diceGame.create({
+      data: {
+        player1Id: game.player1Id,
+        player2Id: game.player2Id!,
+        amount: game.amount,
+        status: "pending",
+        expiresAt: new Date(Date.now() + 30000), // 30s pour accepter
+      },
+    });
+
+    // Reset les votes sur l'ancienne partie
+    await prisma.diceGame.update({
+      where: { id: gameId },
+      data: { player1WantsRematch: false, player2WantsRematch: false },
+    });
+
+    return { success: true, rematchStarted: true, newGameId: newGame.id };
+  }
+
+  return { success: true, rematchStarted: false };
+}
+
+/**
+ * Vérifie l'état du rematch pour une partie
+ */
+export async function checkDiceRematchStatus(
+  gameId: string
+): Promise<{ 
+  canRematch: boolean; 
+  myVote: boolean; 
+  theirVote: boolean;
+  opponentId?: string;
+  opponentName?: string;
+  amount?: number;
+}> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { canRematch: false, myVote: false, theirVote: false };
+  }
+
+  const game = await prisma.diceGame.findUnique({
+    where: { id: gameId },
+    include: {
+      player1: { select: { id: true, discordUsername: true } },
+      player2: { select: { id: true, discordUsername: true } },
+    },
+  });
+
+  if (!game || game.status !== "completed") {
+    return { canRematch: false, myVote: false, theirVote: false };
+  }
+
+  // Vérifier que la partie n'est pas trop vieille
+  if (game.completedAt && Date.now() - game.completedAt.getTime() > 5 * 60 * 1000) {
+    return { canRematch: false, myVote: false, theirVote: false };
+  }
+
+  const isPlayer1 = game.player1Id === session.user.id;
+  const isPlayer2 = game.player2Id === session.user.id;
+
+  if (!isPlayer1 && !isPlayer2) {
+    return { canRematch: false, myVote: false, theirVote: false };
+  }
+
+  const myVote = isPlayer1 ? game.player1WantsRematch : game.player2WantsRematch;
+  const theirVote = isPlayer1 ? game.player2WantsRematch : game.player1WantsRematch;
+  const opponent = isPlayer1 ? game.player2 : game.player1;
+
+  return { 
+    canRematch: true, 
+    myVote, 
+    theirVote,
+    opponentId: opponent?.id,
+    opponentName: opponent?.discordUsername,
+    amount: Number(game.amount),
+  };
+}
+
 export async function playDiceVsBot(amount: number): Promise<PlayVsBotResult> {
   const session = await auth();
   if (!session?.user?.id) {

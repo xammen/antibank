@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { playDiceVsBot, type PlayVsBotResult, getAvailablePlayers, getPendingDiceChallenges, createDiceChallenge, acceptDiceChallenge, getRecentDiceResults, getDiceHistory } from "@/actions/dice";
+import { playDiceVsBot, type PlayVsBotResult, getAvailablePlayers, getPendingDiceChallenges, createDiceChallenge, acceptDiceChallenge, getRecentDiceResults, getDiceHistory, requestDiceRematch, checkDiceRematchStatus } from "@/actions/dice";
 import { Balance } from "@/components/balance";
 import { BalanceProvider, useBalance } from "@/hooks/use-balance";
 import { ChallengeNotification } from "@/components/challenge-notification";
@@ -101,10 +101,14 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
   // PvP state
   const [players, setPlayers] = useState<Player[]>([]);
   const [challenges, setChallenges] = useState<{ sent: Challenge[]; received: Challenge[] }>({ sent: [], received: [] });
-  const [pvpResult, setPvpResult] = useState<{ won: boolean; tie: boolean; myRoll: number; theirRoll: number; myDice: [number, number]; theirDice: [number, number]; profit: number } | null>(null);
+  const [pvpResult, setPvpResult] = useState<{ won: boolean; tie: boolean; myRoll: number; theirRoll: number; myDice: [number, number]; theirDice: [number, number]; profit: number; gameId?: string; opponentName?: string } | null>(null);
   const [pvpAnimating, setPvpAnimating] = useState(false);
   const [seenResultIds, setSeenResultIds] = useState<Set<string>>(new Set());
   const [history, setHistory] = useState<HistoryGame[]>([]);
+  
+  // Rematch state
+  const [rematchStatus, setRematchStatus] = useState<{ myVote: boolean; theirVote: boolean } | null>(null);
+  const [rematchLoading, setRematchLoading] = useState(false);
 
   // Always poll for challenges (even in bot mode, to show notifications)
   useEffect(() => {
@@ -146,7 +150,10 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
             myDice: result.myDice as [number, number],
             theirDice: result.theirDice as [number, number],
             profit: result.profit,
+            gameId: result.id,
+            opponentName: result.opponentName,
           });
+          setRematchStatus(null);
           setPvpAnimating(false);
           setSeenResultIds(prev => new Set([...prev, result.id]));
           refreshBalance();
@@ -206,6 +213,51 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
     loadPvpData();
   };
 
+  const handleRematch = async () => {
+    if (!pvpResult?.gameId) return;
+    
+    setRematchLoading(true);
+    const res = await requestDiceRematch(pvpResult.gameId);
+    
+    if (res.success) {
+      if (res.rematchStarted && res.newGameId) {
+        // Les deux joueurs veulent rejouer - accepter automatiquement
+        setPvpResult(null);
+        setRematchStatus(null);
+        // Si on est player2 du nouveau jeu, on doit l'accepter
+        // Sinon on attend que l'autre accepte
+        loadPvpData();
+      } else {
+        // On a voté, en attente de l'autre
+        setRematchStatus({ myVote: true, theirVote: false });
+      }
+    }
+    setRematchLoading(false);
+  };
+
+  // Poll rematch status si on a voté
+  useEffect(() => {
+    if (!pvpResult?.gameId || !rematchStatus?.myVote) return;
+    
+    const checkRematch = async () => {
+      const status = await checkDiceRematchStatus(pvpResult.gameId!);
+      if (status.canRematch) {
+        setRematchStatus({ myVote: status.myVote, theirVote: status.theirVote });
+        
+        // Si l'autre a aussi voté, on vérifie s'il y a une nouvelle partie
+        if (status.myVote && status.theirVote) {
+          // Nouvelle partie créée, refresh les challenges
+          setPvpResult(null);
+          setRematchStatus(null);
+          loadPvpData();
+        }
+      }
+    };
+    
+    const interval = setInterval(checkRematch, 1500);
+    return () => clearInterval(interval);
+  }, [pvpResult?.gameId, rematchStatus?.myVote]);
+
   const handleAccept = async (challenge: Challenge) => {
     setIsPlaying(true);
     setPvpResult(null);
@@ -224,7 +276,10 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
         myDice: res.player2Dice!,
         theirDice: res.player1Dice!,
         profit: res.profit!,
+        gameId: challenge.id,
+        opponentName: challenge.player1?.discordUsername,
       });
+      setRematchStatus(null);
       
       // Laisser l'animation jouer pendant 2s
       await new Promise((r) => setTimeout(r, 2000));
@@ -469,7 +524,41 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
                     </div>
                   )}
 
-                  {!pvpAnimating && (
+                  {!pvpAnimating && pvpResult.gameId && (
+                    <div className="flex flex-col items-center gap-3 mt-4">
+                      {/* Rematch button */}
+                      <button 
+                        onClick={handleRematch}
+                        disabled={rematchLoading || rematchStatus?.myVote}
+                        className={`px-6 py-2 text-sm border transition-colors ${
+                          rematchStatus?.myVote
+                            ? "border-green-500/50 text-green-400 bg-green-500/10"
+                            : "border-[var(--text)] hover:bg-[rgba(255,255,255,0.05)]"
+                        } disabled:opacity-50`}
+                      >
+                        {rematchLoading ? "..." : rematchStatus?.myVote ? (
+                          rematchStatus.theirVote ? "relance..." : "en attente..."
+                        ) : "rejouer"}
+                      </button>
+                      
+                      {/* Status */}
+                      {rematchStatus?.myVote && !rematchStatus.theirVote && (
+                        <p className="text-xs text-[var(--text-muted)]">
+                          tu veux rejouer, en attente de {pvpResult.opponentName?.toLowerCase()}
+                        </p>
+                      )}
+                      
+                      {/* Cancel/Continue */}
+                      <button 
+                        onClick={() => { setPvpResult(null); setRematchStatus(null); }}
+                        className="text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
+                      >
+                        retour
+                      </button>
+                    </div>
+                  )}
+                  
+                  {!pvpAnimating && !pvpResult.gameId && (
                     <button 
                       onClick={() => setPvpResult(null)}
                       className="text-sm text-[var(--text-muted)] hover:text-[var(--text)]"

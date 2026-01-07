@@ -150,6 +150,10 @@ model DiceGame {
   
   status       String   @default("pending") // "pending", "accepted", "completed", "cancelled", "expired"
   
+  // Rematch votes
+  player1WantsRematch Boolean @default(false)
+  player2WantsRematch Boolean @default(false)
+  
   expiresAt    DateTime // Expire après 5 min si pas accepté
   createdAt    DateTime @default(now())
   completedAt  DateTime?
@@ -238,6 +242,10 @@ model PFCGame {
   winnerId      String?  // null si égalité
   
   status       String   @default("pending") // "pending", "accepted", "playing", "completed", "cancelled", "expired"
+  
+  // Rematch votes
+  player1WantsRematch Boolean @default(false)
+  player2WantsRematch Boolean @default(false)
   
   expiresAt    DateTime
   createdAt    DateTime @default(now())

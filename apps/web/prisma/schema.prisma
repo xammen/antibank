@@ -153,6 +153,10 @@ model DiceGame {
   expiresAt    DateTime // Expire après 5 min si pas accepté
   createdAt    DateTime @default(now())
   completedAt  DateTime?
+  
+  // Rematch voting
+  player1WantsRematch Boolean @default(false)
+  player2WantsRematch Boolean @default(false)
 
   @@index([player1Id])
   @@index([player2Id])
@@ -242,6 +246,10 @@ model PFCGame {
   expiresAt    DateTime
   createdAt    DateTime @default(now())
   completedAt  DateTime?
+  
+  // Rematch voting
+  player1WantsRematch Boolean @default(false)
+  player2WantsRematch Boolean @default(false)
 
   @@index([player1Id])
   @@index([player2Id])

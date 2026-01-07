@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { playPFCVsBot, type PlayPFCVsBotResult, getPendingPFCChallenges, createPFCChallenge, acceptPFCChallenge, makePFCChoice, getRecentPFCResults, getPFCHistory } from "@/actions/pfc";
+import { playPFCVsBot, type PlayPFCVsBotResult, getPendingPFCChallenges, createPFCChallenge, acceptPFCChallenge, makePFCChoice, getRecentPFCResults, getPFCHistory, requestPFCRematch, checkPFCRematchStatus } from "@/actions/pfc";
 import { getAvailablePlayers } from "@/actions/dice";
 import { type PFCChoice } from "@/lib/pfc";
 import { Balance } from "@/components/balance";
@@ -75,9 +75,13 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
   // PvP state
   const [players, setPlayers] = useState<Player[]>([]);
   const [challenges, setChallenges] = useState<{ sent: Challenge[]; received: Challenge[]; playing: PlayingGame[]; waitingResult: PlayingGame[] }>({ sent: [], received: [], playing: [], waitingResult: [] });
-  const [pvpResult, setPvpResult] = useState<{ won: boolean; tie: boolean; myChoice: string; theirChoice: string; profit: number } | null>(null);
+  const [pvpResult, setPvpResult] = useState<{ won: boolean; tie: boolean; myChoice: string; theirChoice: string; profit: number; gameId?: string; opponentName?: string } | null>(null);
   const [history, setHistory] = useState<HistoryGame[]>([]);
   const [seenResultIds, setSeenResultIds] = useState<Set<string>>(new Set());
+  
+  // Rematch state
+  const [rematchStatus, setRematchStatus] = useState<{ myVote: boolean; theirVote: boolean } | null>(null);
+  const [rematchLoading, setRematchLoading] = useState(false);
 
   // Always poll for challenges (even in bot mode, to show notifications)
   useEffect(() => {
@@ -112,7 +116,10 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
             myChoice: result.myChoice || "",
             theirChoice: result.theirChoice || "",
             profit: result.profit,
+            gameId: result.id,
+            opponentName: result.opponentName,
           });
+          setRematchStatus(null);
           setSeenResultIds(prev => new Set([...prev, result.id]));
           refreshBalance();
           loadPvpData();
@@ -209,13 +216,18 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
     setIsPlaying(false);
 
     if (res.success && !res.waiting) {
+      // Determine opponent name from game data
+      const opponentName = game.player1?.discordUsername || game.player2?.discordUsername || "???";
       setPvpResult({
         won: res.profit! > 0,
         tie: res.winnerId === null,
         myChoice: choice,
         theirChoice: res.player1Choice === choice ? res.player2Choice! : res.player1Choice!,
         profit: res.profit!,
+        gameId: game.id,
+        opponentName: opponentName,
       });
+      setRematchStatus(null);
       refreshBalance();
       // Reload history
       const h = await getPFCHistory(15);
@@ -228,7 +240,50 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
     setResult(null);
     setPlayerChoice(null);
     setPvpResult(null);
+    setRematchStatus(null);
   };
+
+  const handleRematch = async () => {
+    if (!pvpResult?.gameId) return;
+    
+    setRematchLoading(true);
+    const res = await requestPFCRematch(pvpResult.gameId);
+    
+    if (res.success) {
+      if (res.rematchStarted && res.newGameId) {
+        // Les deux joueurs veulent rejouer
+        setPvpResult(null);
+        setRematchStatus(null);
+        loadPvpData();
+      } else {
+        // On a voté, en attente de l'autre
+        setRematchStatus({ myVote: true, theirVote: false });
+      }
+    }
+    setRematchLoading(false);
+  };
+
+  // Poll rematch status si on a voté
+  useEffect(() => {
+    if (!pvpResult?.gameId || !rematchStatus?.myVote) return;
+    
+    const checkRematch = async () => {
+      const status = await checkPFCRematchStatus(pvpResult.gameId!);
+      if (status.canRematch) {
+        setRematchStatus({ myVote: status.myVote, theirVote: status.theirVote });
+        
+        // Si l'autre a aussi voté, nouvelle partie créée
+        if (status.myVote && status.theirVote) {
+          setPvpResult(null);
+          setRematchStatus(null);
+          loadPvpData();
+        }
+      }
+    };
+    
+    const interval = setInterval(checkRematch, 1500);
+    return () => clearInterval(interval);
+  }, [pvpResult?.gameId, rematchStatus?.myVote]);
 
   const gameStatus = result 
     ? result.won 
@@ -432,12 +487,45 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
                       {pvpResult.profit > 0 ? "+" : ""}{pvpResult.profit.toFixed(2)}e
                     </p>
                   </div>
-                  <button 
-                    onClick={reset}
-                    className="text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
-                  >
-                    continuer
-                  </button>
+                  
+                  {/* Rematch UI for 1v1 games */}
+                  {pvpResult.gameId ? (
+                    <div className="flex flex-col items-center gap-3">
+                      <button 
+                        onClick={handleRematch}
+                        disabled={rematchLoading || rematchStatus?.myVote}
+                        className={`px-6 py-2 text-sm border transition-colors ${
+                          rematchStatus?.myVote
+                            ? "border-green-500/50 text-green-400 bg-green-500/10"
+                            : "border-[var(--text)] hover:bg-[rgba(255,255,255,0.05)]"
+                        } disabled:opacity-50`}
+                      >
+                        {rematchLoading ? "..." : rematchStatus?.myVote ? (
+                          rematchStatus.theirVote ? "relance..." : "en attente..."
+                        ) : "rejouer"}
+                      </button>
+                      
+                      {rematchStatus?.myVote && !rematchStatus.theirVote && (
+                        <p className="text-xs text-[var(--text-muted)]">
+                          tu veux rejouer, en attente de {pvpResult.opponentName?.toLowerCase()}
+                        </p>
+                      )}
+                      
+                      <button 
+                        onClick={reset}
+                        className="text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
+                      >
+                        retour
+                      </button>
+                    </div>
+                  ) : (
+                    <button 
+                      onClick={reset}
+                      className="text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
+                    >
+                      continuer
+                    </button>
+                  )}
                 </div>
               )}
 
