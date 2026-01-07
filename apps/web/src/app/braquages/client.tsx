@@ -7,6 +7,7 @@ import {
   getRobberyCooldown,
   attemptRobbery,
   getRobberyHistory,
+  getGlobalRobberyHistory,
   attemptAntibankRobbery,
   getAntibankRobberyInfo,
 } from "@/actions/robbery";
@@ -114,10 +115,11 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
   const [isRobbingAntibank, setIsRobbingAntibank] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [targetsRes, cooldownRes, historyRes, bountiesRes, antibankRes, heistRes] = await Promise.all([
+    const [targetsRes, cooldownRes, historyRes, globalHistoryRes, bountiesRes, antibankRes, heistRes] = await Promise.all([
       getRobberyTargets(),
       getRobberyCooldown(),
       getRobberyHistory(10),
+      getGlobalRobberyHistory(20),
       getActiveBounties(),
       getAntibankRobberyInfo(),
       getHeistProgress(),
@@ -131,6 +133,9 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
     if (historyRes.success && historyRes.history) {
       setHistory(historyRes.history);
     }
+    if (globalHistoryRes.success && globalHistoryRes.history) {
+      setGlobalHistory(globalHistoryRes.history);
+    }
     if (bountiesRes.success && bountiesRes.bounties) {
       setBounties(bountiesRes.bounties);
     }
@@ -141,6 +146,17 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
     if (heistRes) {
       setExpandedStage(heistRes.currentStage);
     }
+  }, []);
+
+  // Auto-refresh global history every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const res = await getGlobalRobberyHistory(20);
+      if (res.success && res.history) {
+        setGlobalHistory(res.history);
+      }
+    }, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   // Cooldown countdown avec re-render chaque seconde
