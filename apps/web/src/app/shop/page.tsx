@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@antibank/db";
 import { ShopGrid } from "@/components/shop-grid";
 import { Balance } from "@/components/balance";
+import { BalanceProvider } from "@/hooks/use-balance";
 import Link from "next/link";
 
 export default async function ShopPage() {
@@ -42,33 +43,35 @@ export default async function ShopPage() {
   });
 
   return (
-    <main className="min-h-screen flex flex-col items-center pt-[10vh] px-6 pb-20">
-      <div className="max-w-[600px] w-full flex flex-col gap-8 animate-fade-in">
-        {/* Header */}
-        <header className="flex items-center justify-between border-b border-[var(--line)] pb-4">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/dashboard"
-              className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-sm"
-            >
-              &larr; retour
-            </Link>
+    <BalanceProvider initialBalance={session.user.balance}>
+      <main className="min-h-screen flex flex-col items-center pt-[10vh] px-6 pb-20">
+        <div className="max-w-[600px] w-full flex flex-col gap-8 animate-fade-in">
+          {/* Header */}
+          <header className="flex items-center justify-between border-b border-[var(--line)] pb-4">
+            <div className="flex items-center gap-3">
+              <Link
+                href="/dashboard"
+                className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-sm"
+              >
+                &larr; retour
+              </Link>
+            </div>
+            <h1 className="text-[0.85rem] uppercase tracking-widest">shop</h1>
+          </header>
+
+          {/* Balance */}
+          <div className="flex justify-center">
+            <Balance initialBalance={session.user.balance} />
           </div>
-          <h1 className="text-[0.85rem] uppercase tracking-widest">shop</h1>
-        </header>
 
-        {/* Balance */}
-        <div className="flex justify-center">
-          <Balance initialBalance={session.user.balance} />
+          {/* Shop Grid */}
+          <ShopGrid
+            userUpgrades={upgradeMap}
+            userInventory={userInventory}
+            userBalance={parseFloat(session.user.balance) || 0}
+          />
         </div>
-
-        {/* Shop Grid */}
-        <ShopGrid
-          userUpgrades={upgradeMap}
-          userInventory={userInventory}
-          userBalance={parseFloat(session.user.balance) || 0}
-        />
-      </div>
-    </main>
+      </main>
+    </BalanceProvider>
   );
 }
