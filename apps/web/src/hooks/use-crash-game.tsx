@@ -128,27 +128,21 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
 
   const placeBet = useCallback(async (amount: number) => {
     const result = await placeCrashBet(amount);
-    if (result.success) {
-      await fetchState();
-    }
+    // No await fetchState - polling will sync, UI updates optimistically in CrashBetPanel
     return result;
-  }, [fetchState]);
+  }, []);
 
   const cashOut = useCallback(async () => {
     const result = await cashOutCrash(localMultiplier);
-    if (result.success) {
-      await fetchState();
-    }
+    // No await fetchState - polling will sync, UI updates optimistically in CrashBetPanel
     return result;
-  }, [fetchState, localMultiplier]);
+  }, [localMultiplier]);
 
   const voteSkip = useCallback(async () => {
     const result = await voteSkipCrash();
-    if (result.success) {
-      await fetchState();
-    }
+    // No await fetchState - polling will sync
     return result;
-  }, [fetchState]);
+  }, []);
 
   const userBet = userId 
     ? gameState?.players.find((p) => p.odrzerId === userId)
