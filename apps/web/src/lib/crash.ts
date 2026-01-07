@@ -13,6 +13,12 @@ const HOUSE_EDGE = 0.05; // 5% pour la maison
  * Génère un point de crash aléatoire avec la distribution correcte
  * Utilise une distribution exponentielle inversée
  * @param isBigMultiplierRound - Si true, génère un multiplicateur entre x5 et x25
+ * 
+ * Distribution visée:
+ * - ~50% avant x2
+ * - ~80% avant x5
+ * - ~95% avant x10
+ * - ~5% peuvent aller jusqu'à x50
  */
 export function generateCrashPoint(isBigMultiplierRound: boolean = false): number {
   // Event Big Multiplier: garantit un crash entre x5 et x25
@@ -22,22 +28,31 @@ export function generateCrashPoint(isBigMultiplierRound: boolean = false): numbe
     return Math.floor(bigMultiplier * 100) / 100;
   }
 
-  // Distribution normale
-  // Formule: crashPoint = 1 / (1 - random * (1 - houseEdge))
-  // Cela donne une distribution où la maison gagne sur le long terme
+  // Nouvelle formule qui génère naturellement des valeurs >= 1.01
+  // Basée sur: crashPoint = 0.99 / (1 - random) avec clamp pour éviter les extrêmes
+  // 
+  // Cette formule donne une distribution où:
+  // - random=0 → 0.99/1 = 0.99 (mais on cap à 1.01 min)
+  // - random=0.5 → 0.99/0.5 = 1.98
+  // - random=0.8 → 0.99/0.2 = 4.95
+  // - random=0.95 → 0.99/0.05 = 19.8
+  // - random=0.99 → 0.99/0.01 = 99 (cap à 50)
+  
   const random = Math.random();
-  const e = 1 - HOUSE_EDGE;
+  const e = 1 - HOUSE_EDGE; // 0.95
   
-  // Évite la division par zéro et les valeurs extrêmes
-  const safeRandom = Math.min(random, 0.99);
+  // Transformer random pour éviter les crashes trop bas
+  // Avec minRandom=0.15: ~8% <= 1.20, ~44% < 2, ~78% < 5
+  // Bien plus équilibré que l'ancienne formule (21% <= 1.20)
+  const adjusted = 0.15 + random * 0.84; // random entre 0.15 et 0.99
   
-  let crashPoint = e / (1 - safeRandom);
+  let crashPoint = e / (1 - adjusted);
   
   // Cap à x50 max
   crashPoint = Math.min(crashPoint, 50);
   
-  // Minimum x1.10 pour que le jeu dure au moins ~1.5 secondes
-  crashPoint = Math.max(crashPoint, 1.10);
+  // Minimum absolu x1.01 (crash instantané évité)
+  crashPoint = Math.max(crashPoint, 1.01);
   
   return Math.floor(crashPoint * 100) / 100;
 }
