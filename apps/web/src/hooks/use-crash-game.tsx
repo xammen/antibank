@@ -75,14 +75,15 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
     if (gameState.startTime && startTimeRef.current !== gameState.startTime) {
       startTimeRef.current = gameState.startTime;
     }
+    
+    // Fallback: si pas de startTime du serveur, utiliser maintenant
+    // (le serveur synchronisera au prochain poll)
+    if (!startTimeRef.current) {
+      startTimeRef.current = Date.now();
+    }
 
     const animate = () => {
-      if (!startTimeRef.current) {
-        animationRef.current = requestAnimationFrame(animate);
-        return;
-      }
-
-      const elapsed = Date.now() - startTimeRef.current;
+      const elapsed = Date.now() - (startTimeRef.current || Date.now());
       const mult = calculateMultiplier(elapsed);
       setLocalMultiplier(mult);
       
