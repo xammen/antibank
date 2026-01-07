@@ -1,23 +1,20 @@
-# AntiBank - Phase 5: DahkaCoin
+# AntiBank - Progress Tracker
 
-## Tasks
-- [x] Add DahkaCoin database models (DahkaCoinPrice table, user DC fields)
-- [x] Create DahkaCoin server actions (buy, sell, price history, update price)
-- [x] Create DahkaCoin UI page with price chart and trading interface
+## Completed Phases
+- [x] Phase 1: Auth + Dashboard + Clicker
+- [x] Phase 2: Casino (Crash, Des, PFC)
+- [x] Phase 3: Heist Quest System
+- [x] Phase 5: DahkaCoin (partial - needs chart)
 
-# AntiBank - Phase 3: Heist Quest System
+## Performance Optimizations Done
+- [x] Crash game: optimistic bet/cashout, smooth graph
+- [x] Shop: optimistic state (instant purchase)
+- [x] Dice: parallel animation + server, no revalidatePath
+- [x] PFC: parallel animation + server, no revalidatePath
 
-## Tasks
-- [x] Design heist quest system (5 stages)
-- [x] Add HeistProgress database model
-- [x] Create heist.ts actions (tracking, progress, stage checks)
-- [x] Create heist-config.ts constants
-- [x] Integrate tracking in click.ts (fast clicks booster)
-- [x] Integrate tracking in dice.ts (casino win streak)
-- [x] Integrate tracking in pfc.ts (casino win streak)
-- [x] Integrate tracking in crash-manager.ts (crash games + casino streak)
-- [x] Integrate tracking in robbery.ts (robbery success + survived)
-- [x] Build quest UI in braquages/client.tsx
-- [x] Add bot voice minute tracking
-- [x] Add shop items section with buy functionality
-- [x] Push to remote
+## Remaining Roadmap
+- [ ] Phase 3b: Braquages + Bounties (robbery system exists, bounties TODO)
+- [ ] Phase 4: Votes + Justice
+- [ ] Phase 6: Boutique complete
+- [ ] Phase 7: Panel Admin
+- [ ] Phase 8: Events aleatoires
