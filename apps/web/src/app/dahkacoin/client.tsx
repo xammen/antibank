@@ -103,6 +103,7 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
   const [period, setPeriod] = useState<"1h" | "24h" | "7d">("1h");
   const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
   const [tradeAmount, setTradeAmount] = useState("");
+  const [showPhaseInfo, setShowPhaseInfo] = useState(false);
   const [isTrading, setIsTrading] = useState(false);
   const [tradeResult, setTradeResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -440,30 +441,70 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
         </div>
 
         {/* Next Event Countdown */}
-        <div className="border border-[var(--line)] p-3 bg-[rgba(255,255,255,0.01)]">
-          <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-2">prochain event</p>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-lg font-mono text-[var(--text)]">
-              {formatTime(nextEventIn)}
-            </span>
-            <span className="text-[0.6rem] text-[var(--text-muted)]">
-              {volatility}
-            </span>
-          </div>
-          <div className="h-1 bg-[rgba(255,255,255,0.1)] overflow-hidden">
-            <div 
-              className="h-full bg-purple-500 transition-all duration-1000"
-              style={{ width: `${Math.max(0, (1 - nextEventIn / 90)) * 100}%` }}
-            />
-          </div>
-        </div>
+        {(() => {
+          // Determine dominant event type based on probabilities
+          const total = eventProbs.pump + eventProbs.crash + eventProbs.chaos;
+          const dominantType = total > 0 
+            ? (eventProbs.pump >= eventProbs.crash && eventProbs.pump >= eventProbs.chaos ? 'pump' 
+              : eventProbs.crash >= eventProbs.chaos ? 'crash' : 'chaos')
+            : 'chaos';
+          const barColor = dominantType === 'pump' ? 'bg-green-500' : dominantType === 'crash' ? 'bg-red-500' : 'bg-purple-500';
+          
+          return (
+            <div className="border border-[var(--line)] p-3 bg-[rgba(255,255,255,0.01)]">
+              <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-2">prochain event</p>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-lg font-mono text-[var(--text)]">
+                  {formatTime(nextEventIn)}
+                </span>
+                <span className="text-[0.6rem] text-[var(--text-muted)]">
+                  {volatility}
+                </span>
+              </div>
+              <div className="h-1 bg-[rgba(255,255,255,0.1)] overflow-hidden">
+                <div 
+                  className={`h-full ${barColor} transition-all duration-1000`}
+                  style={{ width: `${Math.max(0, (1 - nextEventIn / 90)) * 100}%` }}
+                />
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Probabilities */}
       <div className="grid grid-cols-2 gap-3">
         {/* Next Phase Probabilities */}
-        <div className="border border-[var(--line)] p-3 bg-[rgba(255,255,255,0.01)]">
-          <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">prochaine phase</p>
+        <div className="border border-[var(--line)] p-3 bg-[rgba(255,255,255,0.01)] relative">
+          <div className="flex items-center gap-2 mb-3">
+            <button
+              onClick={() => setShowPhaseInfo(!showPhaseInfo)}
+              className="w-4 h-4 rounded-full border border-[var(--text-muted)] text-[var(--text-muted)] text-[0.5rem] hover:border-[var(--text)] hover:text-[var(--text)] transition-colors flex items-center justify-center"
+            >
+              i
+            </button>
+            <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)]">prochaine phase</p>
+          </div>
+          
+          {showPhaseInfo && (
+            <div className="absolute left-0 right-0 top-8 mx-2 p-3 bg-[#151515] border border-[var(--line)] text-[0.6rem] text-[var(--text-muted)] z-10 space-y-1">
+              <p className="text-[var(--text)] mb-2">le marche passe par des phases:</p>
+              <p><span className="text-[var(--text)]">accumulation</span> - calme, bon moment pour acheter</p>
+              <p><span className="text-green-400">hausse</span> - ca commence a monter</p>
+              <p><span className="text-green-500">euphorie</span> - moon! mais attention au crash</p>
+              <p><span className="text-orange-400">distribution</span> - les gros vendent, instable</p>
+              <p><span className="text-red-400">baisse</span> - ca descend</p>
+              <p><span className="text-red-500">capitulation</span> - panique! mais opportunite</p>
+              <p><span className="text-blue-400">recuperation</span> - le fond est passe</p>
+              <button 
+                onClick={() => setShowPhaseInfo(false)}
+                className="mt-2 text-[var(--text)] underline"
+              >
+                fermer
+              </button>
+            </div>
+          )}
+          
           <div className="space-y-2">
             {sortedPhases.map(([p, prob]) => (
               <div key={p} className="flex items-center gap-2">
