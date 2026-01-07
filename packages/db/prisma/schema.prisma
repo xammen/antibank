@@ -26,6 +26,9 @@ model User {
   voiceStreak        Int      @default(0)      // Jours consécutifs avec 30+ min de vocal
   totalVoiceMinutes  Int      @default(0)      // Total all-time pour stats
 
+  // Robbery cooldown
+  lastRobberyAt    DateTime?  // Dernière tentative de braquage
+
   isAdmin  Boolean @default(false)
   isBanned Boolean @default(false)
 
@@ -289,4 +292,53 @@ model LotteryTicket {
 
   @@index([lotteryId])
   @@index([userId])
+}
+
+// ============================================
+// PHASE 3: BRAQUAGES & BOUNTIES
+// ============================================
+
+// Historique des braquages
+model Robbery {
+  id          String   @id @default(cuid())
+  
+  robberId    String   // Celui qui braque
+  victimId    String   // Celui qui se fait braquer
+  
+  success     Boolean  // Réussi ou échoué
+  amount      Decimal  @db.Decimal(10, 2) // Montant volé (ou perdu si échec)
+  
+  // Stats pour analytics
+  robberBalance  Decimal @db.Decimal(10, 2) // Balance du braqueur avant
+  victimBalance  Decimal @db.Decimal(10, 2) // Balance de la victime avant
+  rollChance     Int     // Chance de réussite (0-100)
+  rollResult     Int     // Résultat du dé (0-100)
+  
+  createdAt   DateTime @default(now())
+
+  @@index([robberId])
+  @@index([victimId])
+  @@index([createdAt])
+}
+
+// Bounties (primes sur la tête de quelqu'un)
+model Bounty {
+  id          String   @id @default(cuid())
+  
+  posterId    String   // Celui qui met la prime
+  targetId    String   // La cible
+  claimerId   String?  // Celui qui a claim la prime (null si pas encore)
+  
+  amount      Decimal  @db.Decimal(10, 2) // Montant de la prime
+  
+  status      String   @default("active") // "active", "claimed", "expired", "cancelled"
+  
+  expiresAt   DateTime // Expire après 48h
+  createdAt   DateTime @default(now())
+  claimedAt   DateTime?
+
+  @@index([targetId, status])
+  @@index([posterId])
+  @@index([status])
+  @@index([expiresAt])
 }
