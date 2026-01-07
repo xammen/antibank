@@ -80,7 +80,7 @@ export default async function Dashboard() {
         </div>
 
         {/* Navigation Links */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <Link
             href="/shop"
             className="flex items-center justify-center gap-2 p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)] hover:bg-[rgba(255,255,255,0.03)] hover:border-[var(--text-muted)] transition-all duration-200"
@@ -94,6 +94,13 @@ export default async function Dashboard() {
           >
             <span className="text-lg">🎰</span>
             <span className="text-sm uppercase tracking-widest">casino</span>
+          </Link>
+          <Link
+            href="/braquages"
+            className="flex items-center justify-center gap-2 p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)] hover:bg-[rgba(255,255,255,0.03)] hover:border-[var(--text-muted)] transition-all duration-200"
+          >
+            <span className="text-lg">🔫</span>
+            <span className="text-sm uppercase tracking-widest">braquages</span>
           </Link>
         </div>
 
