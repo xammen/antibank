@@ -74,8 +74,9 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
     const startTime = gameState.startTime;
     
     if (!startTime) {
-      // Pas encore de startTime du serveur - utiliser le multiplicateur du serveur
-      setLocalMultiplier(gameState.currentMultiplier);
+      // Pas encore de startTime du serveur - commencer à 1.00
+      // (ne jamais utiliser currentMultiplier du serveur car il peut être élevé)
+      setLocalMultiplier(1.00);
       return;
     }
 
