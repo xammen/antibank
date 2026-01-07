@@ -4,13 +4,21 @@ import Link from "next/link";
 
 const games = [
   {
+    id: "click-battle",
+    name: "Click Battle",
+    description: "Duel de clics 1v1 - qui clique le plus vite?",
+    icon: "👆",
+    href: "/casino/click-battle",
+    available: true,
+    isNew: true,
+  },
+  {
     id: "arena",
     name: "Arena",
     description: "Rooms multijoueurs (2-8 joueurs) - Dés & PFC",
     icon: "🏟️",
     href: "/casino/arena",
     available: true,
-    isNew: true,
   },
   {
     id: "crash",
