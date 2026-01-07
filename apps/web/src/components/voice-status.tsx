@@ -157,11 +157,21 @@ export function VoiceStatus() {
             transition-opacity duration-300
             ${blink ? "opacity-100" : "opacity-30"}
           `} />
-          <span className="text-[0.7rem] text-green-400">
-            +{status.earningsPerMin}€/min
-            {multiplierText && <span className="text-yellow-400 ml-1">{multiplierText}</span>}
-            {status.isHappyHour && <span className="text-purple-400 ml-1">🌙</span>}
-          </span>
+          <div className="flex flex-col">
+            <span className="text-[0.7rem] text-green-400">
+              +{status.earningsPerMin}€/min
+              {multiplierText && <span className="text-yellow-400 ml-1">{multiplierText}</span>}
+              {status.isHappyHour && <span className="text-purple-400 ml-1">🌙</span>}
+            </span>
+            {(status.channelName || status.othersCount) && (
+              <span className="text-[0.6rem] text-[var(--text-muted)]">
+                {status.channelName}
+                {status.othersCount && status.othersCount > 0 && (
+                  <span> • {status.othersCount + 1} connectés</span>
+                )}
+              </span>
+            )}
+          </div>
         </div>
         
         {/* Countdown */}
