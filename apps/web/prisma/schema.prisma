@@ -342,3 +342,94 @@ model Bounty {
   @@index([status])
   @@index([expiresAt])
 }
+
+// ============================================
+// PHASE 4: VOTES & JUSTICE
+// ============================================
+
+// Warn/Vote pour amendes
+model WarnVote {
+  id           String   @id @default(cuid())
+  
+  accuserId    String   // Celui qui lance le warn
+  accusedId    String   // L'accuse
+  
+  reason       String   // Raison du warn
+  amount       Decimal  @db.Decimal(10, 2) // Montant de l'amende demandee
+  
+  status       String   @default("voting") // "voting", "guilty", "innocent", "expired"
+  
+  // Resultats
+  guiltyVotes    Int     @default(0)
+  innocentVotes  Int     @default(0)
+  
+  endsAt       DateTime // Fin du vote (10 min)
+  createdAt    DateTime @default(now())
+  resolvedAt   DateTime?
+
+  votes WarnBallot[]
+
+  @@index([accuserId])
+  @@index([accusedId])
+  @@index([status])
+  @@index([endsAt])
+}
+
+// Bulletins de vote pour les warns
+model WarnBallot {
+  id         String   @id @default(cuid())
+  
+  warnVoteId String
+  warnVote   WarnVote @relation(fields: [warnVoteId], references: [id], onDelete: Cascade)
+  
+  odrzerId   String   // Celui qui vote
+  vote       String   // "guilty" ou "innocent"
+  
+  createdAt  DateTime @default(now())
+
+  @@unique([warnVoteId, odrzerId])
+  @@index([warnVoteId])
+  @@index([odrzerId])
+}
+
+// Revolution / Coup d'etat
+model Revolution {
+  id           String   @id @default(cuid())
+  
+  initatorId   String   // Celui qui lance la revolution
+  targetId     String   // Le plus riche (cible)
+  
+  status       String   @default("voting") // "voting", "success", "failed", "expired"
+  
+  forVotes     Int      @default(0)
+  againstVotes Int      @default(0)
+  
+  targetBalance   Decimal @db.Decimal(10, 2) // Balance de la cible au moment du lancement
+  medianBalance   Decimal @db.Decimal(10, 2) // Mediane au moment du lancement
+  
+  endsAt       DateTime // Fin du vote (30 min)
+  createdAt    DateTime @default(now())
+  resolvedAt   DateTime?
+
+  votes RevolutionBallot[]
+
+  @@index([status])
+  @@index([endsAt])
+}
+
+// Bulletins de vote pour les revolutions
+model RevolutionBallot {
+  id            String     @id @default(cuid())
+  
+  revolutionId  String
+  revolution    Revolution @relation(fields: [revolutionId], references: [id], onDelete: Cascade)
+  
+  odrzerId      String     // Celui qui vote
+  vote          String     // "for" ou "against"
+  
+  createdAt     DateTime   @default(now())
+
+  @@unique([revolutionId, odrzerId])
+  @@index([revolutionId])
+  @@index([odrzerId])
+}
