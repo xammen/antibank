@@ -39,7 +39,7 @@ interface PublicState {
 
 // Durées en ms
 const COUNTDOWN_MS = CRASH_CONFIG.COUNTDOWN_SECONDS * 1000; // 15s de countdown
-const POST_CRASH_DELAY_MS = 4000; // 4s après crash avant nouvelle partie
+const POST_CRASH_DELAY_MS = 5000; // 5s après crash avant nouvelle partie
 const MIN_PLAYERS_FOR_SKIP = 2;
 
 class CrashGameManager {
@@ -135,7 +135,8 @@ class CrashGameManager {
       return existingGame;
     }
 
-    return prisma.crashGame.create({
+    // Créer la nouvelle partie
+    const newGame = await prisma.crashGame.create({
       data: {
         crashPoint: new Prisma.Decimal(generateCrashPoint()),
         status: "waiting",
@@ -148,6 +149,41 @@ class CrashGameManager {
         }
       }
     });
+
+    // Double-check: s'il y a plusieurs parties waiting, garder seulement la plus ancienne
+    // et annuler les autres (protection race condition)
+    const allWaiting = await prisma.crashGame.findMany({
+      where: { status: "waiting" },
+      orderBy: { createdAt: "asc" },
+      select: { id: true }
+    });
+
+    if (allWaiting.length > 1) {
+      // Garder la première (plus ancienne), supprimer les autres
+      const firstId = allWaiting[0].id;
+      const toDelete = allWaiting.slice(1).map(g => g.id);
+      
+      await prisma.crashGame.deleteMany({
+        where: { id: { in: toDelete } }
+      });
+
+      // Si notre partie a été supprimée, récupérer la bonne
+      if (toDelete.includes(newGame.id)) {
+        const correctGame = await prisma.crashGame.findUnique({
+          where: { id: firstId },
+          include: {
+            bets: {
+              include: {
+                user: { select: { id: true, discordUsername: true } }
+              }
+            }
+          }
+        });
+        if (correctGame) return correctGame;
+      }
+    }
+
+    return newGame;
   }
 
   async getHistory(limit: number = 10): Promise<CrashHistoryEntry[]> {
