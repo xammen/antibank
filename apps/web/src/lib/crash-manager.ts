@@ -44,11 +44,9 @@ const MIN_PLAYERS_FOR_SKIP = 2;
 
 class CrashGameManager {
   async getOrCreateCurrentGame() {
-    // Chercher une partie en cours ou en attente
+    // Chercher une partie running d'abord
     let game = await prisma.crashGame.findFirst({
-      where: {
-        status: { in: ["waiting", "running"] }
-      },
+      where: { status: "running" },
       include: {
         bets: {
           include: {
@@ -62,6 +60,36 @@ class CrashGameManager {
     if (game) {
       return game;
     }
+
+    // Chercher une partie waiting récente (créée il y a moins de countdown + 5s de grâce)
+    const maxWaitingAge = COUNTDOWN_MS + 5000;
+    const waitingGame = await prisma.crashGame.findFirst({
+      where: { 
+        status: "waiting",
+        createdAt: { gte: new Date(Date.now() - maxWaitingAge) }
+      },
+      include: {
+        bets: {
+          include: {
+            user: { select: { id: true, discordUsername: true } }
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    if (waitingGame) {
+      return waitingGame;
+    }
+    
+    // Nettoyer les vieilles parties waiting (stale)
+    await prisma.crashGame.updateMany({
+      where: { 
+        status: "waiting",
+        createdAt: { lt: new Date(Date.now() - maxWaitingAge) }
+      },
+      data: { status: "crashed", crashedAt: new Date(), crashPoint: 1 }
+    });
 
     // Pas de partie active, vérifier s'il y a une partie crashed récente
     const crashedGame = await prisma.crashGame.findFirst({
