@@ -299,7 +299,11 @@ class CrashGameManager {
     const skipVotesNeeded = Math.max(MIN_PLAYERS_FOR_SKIP, Math.ceil(players.length * 0.5));
     
     // Calculer le nombre de parties pour le Big Multiplier event
-    const totalGames = history.length + 1; // +1 pour la partie en cours
+    // On compte le nombre total de parties crashed + la partie en cours
+    const totalCrashedGames = await prisma.crashGame.count({
+      where: { status: "crashed" }
+    });
+    const totalGames = totalCrashedGames + 1; // +1 pour la partie en cours
     const gamesSinceLastCheck = totalGames % 5;
     const nextBigMultiplierIn = gamesSinceLastCheck === 0 ? 0 : 5 - gamesSinceLastCheck;
     

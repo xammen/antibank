@@ -4,17 +4,37 @@ import { prisma } from "@antibank/db";
 import { auth } from "@/lib/auth";
 
 // ============================================
-// CONFIGURATION
+// CONFIGURATION - CHAOTIC DAHKACOIN
 // ============================================
 
-const DC_MIN_PRICE = 0.10;
-const DC_MAX_PRICE = 50.00;
+const DC_MIN_PRICE = 0.01;       // Can go VERY low
+const DC_MAX_PRICE = 500;        // Can go VERY high (was 50)
 const DC_INITIAL_PRICE = 1.00;
 const DC_SELL_FEE = 0.02;
+const DC_FAIR_VALUE = 5.00;      // Price tends toward this over long time
 
 // ============================================
 // TYPES
 // ============================================
+
+type MarketPhase = 
+  | 'accumulation'   // Quiet, low volatility, price slowly building
+  | 'markup'         // Uptrend beginning, momentum building
+  | 'euphoria'       // MOON MODE - explosive growth
+  | 'distribution'   // Top forming, choppy
+  | 'decline'        // Downtrend, fear
+  | 'capitulation'   // CRASH MODE - panic
+  | 'recovery';      // Bottom forming
+
+type ExtremeEvent = 
+  | 'none'
+  | 'whale_pump'       // Big buyer (+30% to +100%)
+  | 'whale_dump'       // Big seller (-20% to -60%)
+  | 'flash_crash'      // Instant -40% to -70%
+  | 'mega_pump'        // Sustained +200% to +500%
+  | 'liquidity_crisis' // Price frozen, then big move
+  | 'fomo_wave'        // Cascading buys
+  | 'panic_wave';      // Cascading sells
 
 interface PricePoint {
   price: number;
@@ -23,19 +43,40 @@ interface PricePoint {
 
 interface MarketState {
   price: number;
-  trend: number;           // -1 to 1 (bearish to bullish)
-  volatility: number;      // 0.5 to 2 (low to high volatility)
-  momentum: number;        // -0.5 to 0.5 (acceleration)
-  trendDuration: number;   // seconds remaining in current trend
-  lastUpdate: number;      // timestamp
+  phase: MarketPhase;
+  phaseStartTime: number;
+  phaseDuration: number;
+  momentum: number;           // -1 to 1
+  volatilityMultiplier: number;
+  activeEvent: ExtremeEvent;
+  eventStartTime: number;
+  eventDuration: number;
+  eventIntensity: number;
+  lastEventTime: number;
+  allTimeHigh: number;
+  allTimeLow: number;
+  lastUpdate: number;
+}
+
+interface Signals {
+  phaseWarning: boolean;
+  oversold: boolean;
+  overbought: boolean;
+  momentumDivergence: boolean;
+  whaleAlert: boolean;
 }
 
 interface DCState {
   currentPrice: number;
-  trend: number;
-  volatility: number;
+  phase: MarketPhase;
+  phaseProgress: number;
   momentum: number;
-  trendDuration: number;
+  volatility: string;
+  activeEvent: ExtremeEvent;
+  eventIntensity: number;
+  signals: Signals;
+  allTimeHigh: number;
+  allTimeLow: number;
   priceHistory: PricePoint[];
   userDC: number;
   userAvgPrice: number | null;
@@ -53,26 +94,144 @@ interface TradeResult {
 }
 
 // ============================================
+// PHASE CONFIGURATION
+// ============================================
+
+const PHASE_DURATIONS: Record<MarketPhase, { min: number; max: number }> = {
+  accumulation:  { min: 120,  max: 300  },  // 2-5 min
+  markup:        { min: 60,   max: 180  },  // 1-3 min
+  euphoria:      { min: 30,   max: 120  },  // 30s-2min - short!
+  distribution:  { min: 60,   max: 180  },  // 1-3 min
+  decline:       { min: 60,   max: 240  },  // 1-4 min
+  capitulation:  { min: 15,   max: 60   },  // 15s-1min - very short!
+  recovery:      { min: 120,  max: 300  },  // 2-5 min
+};
+
+const PHASE_TRANSITIONS: Record<MarketPhase, Partial<Record<MarketPhase, number>>> = {
+  accumulation: { markup: 0.60, decline: 0.25, accumulation: 0.15 },
+  markup: { euphoria: 0.50, distribution: 0.30, markup: 0.20 },
+  euphoria: { distribution: 0.70, capitulation: 0.20, euphoria: 0.10 },
+  distribution: { decline: 0.50, capitulation: 0.30, markup: 0.15, distribution: 0.05 },
+  decline: { capitulation: 0.40, recovery: 0.35, decline: 0.25 },
+  capitulation: { recovery: 0.80, capitulation: 0.15, accumulation: 0.05 },
+  recovery: { accumulation: 0.60, markup: 0.30, decline: 0.10 },
+};
+
+// Volatility by phase (% per second)
+const VOLATILITY_BY_PHASE: Record<MarketPhase, { base: number; max: number }> = {
+  accumulation:  { base: 0.001, max: 0.01  },
+  markup:        { base: 0.003, max: 0.03  },
+  euphoria:      { base: 0.010, max: 0.10  },  // WILD
+  distribution:  { base: 0.005, max: 0.05  },
+  decline:       { base: 0.004, max: 0.04  },
+  capitulation:  { base: 0.015, max: 0.15  },  // CHAOS
+  recovery:      { base: 0.003, max: 0.03  },
+};
+
+// Event probabilities per tick
+const EVENT_PROBABILITIES: Record<ExtremeEvent, number> = {
+  none: 0,
+  whale_pump: 0.0008,       // ~0.08%
+  whale_dump: 0.0008,
+  flash_crash: 0.0002,      // Rare but devastating
+  mega_pump: 0.0001,        // Very rare
+  liquidity_crisis: 0.0001,
+  fomo_wave: 0.0005,
+  panic_wave: 0.0005,
+};
+
+const EVENT_DURATIONS: Record<ExtremeEvent, { min: number; max: number }> = {
+  none: { min: 0, max: 0 },
+  whale_pump: { min: 10, max: 30 },
+  whale_dump: { min: 10, max: 30 },
+  flash_crash: { min: 5, max: 15 },
+  mega_pump: { min: 60, max: 180 },   // 1-3 minutes of moon
+  liquidity_crisis: { min: 30, max: 60 },
+  fomo_wave: { min: 20, max: 60 },
+  panic_wave: { min: 20, max: 60 },
+};
+
+const EVENT_MAGNITUDES: Record<ExtremeEvent, { min: number; max: number }> = {
+  none: { min: 0, max: 0 },
+  whale_pump: { min: 0.30, max: 1.00 },      // +30% to +100%
+  whale_dump: { min: 0.20, max: 0.60 },      // -20% to -60%
+  flash_crash: { min: 0.40, max: 0.70 },     // -40% to -70%
+  mega_pump: { min: 2.00, max: 5.00 },       // +200% to +500%
+  liquidity_crisis: { min: 0.30, max: 0.80 },
+  fomo_wave: { min: 0.20, max: 0.50 },
+  panic_wave: { min: 0.20, max: 0.50 },
+};
+
+// Phase-dependent event multipliers
+const PHASE_EVENT_MULTIPLIERS: Record<MarketPhase, Partial<Record<ExtremeEvent, number>>> = {
+  accumulation:  { whale_pump: 2.0, whale_dump: 0.5, flash_crash: 0.3, mega_pump: 1.5 },
+  markup:        { whale_pump: 1.5, whale_dump: 0.5, flash_crash: 0.5, mega_pump: 2.0, fomo_wave: 1.5 },
+  euphoria:      { whale_pump: 0.5, whale_dump: 2.0, flash_crash: 1.5, mega_pump: 0.5, fomo_wave: 2.0 },
+  distribution:  { whale_pump: 0.5, whale_dump: 2.0, flash_crash: 1.0, panic_wave: 1.0 },
+  decline:       { whale_pump: 0.5, whale_dump: 1.5, flash_crash: 1.5, panic_wave: 1.5 },
+  capitulation:  { whale_pump: 1.0, whale_dump: 0.5, flash_crash: 0.5 },
+  recovery:      { whale_pump: 1.5, whale_dump: 0.5, mega_pump: 1.0, fomo_wave: 1.0 },
+};
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+function randomInRange(min: number, max: number): number {
+  return min + Math.random() * (max - min);
+}
+
+function getEventDirection(event: ExtremeEvent): number {
+  switch (event) {
+    case 'whale_pump':
+    case 'mega_pump':
+    case 'fomo_wave':
+      return 1;
+    case 'whale_dump':
+    case 'flash_crash':
+    case 'panic_wave':
+      return -1;
+    case 'liquidity_crisis':
+      return Math.random() > 0.5 ? 1 : -1;
+    default:
+      return 0;
+  }
+}
+
+function getVolatilityName(base: number): string {
+  if (base < 0.002) return 'calme';
+  if (base < 0.005) return 'normal';
+  if (base < 0.015) return 'volatile';
+  if (base < 0.05) return 'extreme';
+  return 'chaos';
+}
+
+// ============================================
 // MARKET STATE MANAGEMENT
 // ============================================
 
-/**
- * Get or initialize market state from GameConfig
- */
 async function getMarketState(): Promise<MarketState> {
   const config = await prisma.$queryRaw<{ value: string }[]>`
     SELECT value::text FROM "GameConfig" WHERE key = 'dahkacoin_market'
   `;
 
   if (config.length === 0) {
-    // Initialize market state
+    const now = Date.now();
     const initialState: MarketState = {
       price: DC_INITIAL_PRICE,
-      trend: 0,
-      volatility: 1,
+      phase: 'accumulation',
+      phaseStartTime: now,
+      phaseDuration: randomInRange(PHASE_DURATIONS.accumulation.min * 1000, PHASE_DURATIONS.accumulation.max * 1000),
       momentum: 0,
-      trendDuration: 60 + Math.floor(Math.random() * 180), // 1-4 minutes
-      lastUpdate: Date.now(),
+      volatilityMultiplier: 1,
+      activeEvent: 'none',
+      eventStartTime: 0,
+      eventDuration: 0,
+      eventIntensity: 0,
+      lastEventTime: 0,
+      allTimeHigh: DC_INITIAL_PRICE,
+      allTimeLow: DC_INITIAL_PRICE,
+      lastUpdate: now,
     };
     
     await prisma.$executeRaw`
@@ -81,7 +240,6 @@ async function getMarketState(): Promise<MarketState> {
       ON CONFLICT (key) DO UPDATE SET value = ${JSON.stringify(initialState)}::jsonb, "updatedAt" = NOW()
     `;
 
-    // Also insert initial price point
     await prisma.$executeRaw`
       INSERT INTO "DahkaCoinPrice" (id, price, trend, "createdAt")
       VALUES (gen_random_uuid()::text, ${DC_INITIAL_PRICE}, 0, NOW())
@@ -93,9 +251,6 @@ async function getMarketState(): Promise<MarketState> {
   return JSON.parse(config[0].value) as MarketState;
 }
 
-/**
- * Save market state
- */
 async function saveMarketState(state: MarketState): Promise<void> {
   await prisma.$executeRaw`
     UPDATE "GameConfig"
@@ -104,154 +259,256 @@ async function saveMarketState(state: MarketState): Promise<void> {
   `;
 }
 
-/**
- * Generate new trend parameters
- */
-function generateNewTrend(currentPrice: number): { trend: number; volatility: number; momentum: number; duration: number } {
-  // Bias trend towards mean reversion when price is extreme
-  let trendBias = 0;
-  if (currentPrice < 0.5) trendBias = 0.3;  // More likely to go up when low
-  if (currentPrice > 10) trendBias = -0.3;  // More likely to go down when high
+// ============================================
+// PHASE MANAGEMENT
+// ============================================
+
+function transitionPhase(state: MarketState, now: number): void {
+  const transitions = PHASE_TRANSITIONS[state.phase];
+  const roll = Math.random();
+  let cumulative = 0;
   
-  const trend = Math.max(-1, Math.min(1, (Math.random() - 0.5) * 2 + trendBias));
-  const volatility = 0.5 + Math.random() * 1.5; // 0.5 to 2
-  const momentum = (Math.random() - 0.5) * 0.5; // -0.25 to 0.25
-  const duration = 60 + Math.floor(Math.random() * 240); // 1-5 minutes
+  let newPhase: MarketPhase = state.phase;
+  for (const [phase, probability] of Object.entries(transitions)) {
+    cumulative += probability!;
+    if (roll <= cumulative) {
+      newPhase = phase as MarketPhase;
+      break;
+    }
+  }
   
-  return { trend, volatility, momentum, duration };
+  state.phase = newPhase;
+  state.phaseStartTime = now;
+  state.phaseDuration = randomInRange(
+    PHASE_DURATIONS[newPhase].min * 1000,
+    PHASE_DURATIONS[newPhase].max * 1000
+  );
+  
+  // Momentum boost on phase change
+  if (newPhase === 'euphoria' || newPhase === 'markup') {
+    state.momentum = Math.min(1, state.momentum + 0.3);
+  } else if (newPhase === 'capitulation' || newPhase === 'decline') {
+    state.momentum = Math.max(-1, state.momentum - 0.3);
+  }
 }
 
-/**
- * Calculate price change for a given time delta
- * This creates realistic micro-fluctuations
- */
+// ============================================
+// EVENT MANAGEMENT
+// ============================================
+
+function checkForEvents(state: MarketState, now: number): void {
+  // If event is active, update it
+  if (state.activeEvent !== 'none') {
+    const elapsed = now - state.eventStartTime;
+    if (elapsed >= state.eventDuration) {
+      state.activeEvent = 'none';
+      state.eventIntensity = 0;
+    } else {
+      // Intensity peaks in middle
+      const progress = elapsed / state.eventDuration;
+      state.eventIntensity = Math.sin(progress * Math.PI);
+    }
+    return;
+  }
+  
+  // Cooldown: no events within 30 seconds
+  if (now - state.lastEventTime < 30000) return;
+  
+  // Roll for each event type
+  const multipliers = PHASE_EVENT_MULTIPLIERS[state.phase];
+  
+  for (const [event, baseProbability] of Object.entries(EVENT_PROBABILITIES)) {
+    if (event === 'none') continue;
+    
+    const multiplier = multipliers[event as ExtremeEvent] || 1.0;
+    const probability = baseProbability * multiplier;
+    
+    if (Math.random() < probability) {
+      state.activeEvent = event as ExtremeEvent;
+      state.eventStartTime = now;
+      state.eventDuration = randomInRange(
+        EVENT_DURATIONS[event as ExtremeEvent].min * 1000,
+        EVENT_DURATIONS[event as ExtremeEvent].max * 1000
+      );
+      state.eventIntensity = 0.5;
+      state.lastEventTime = now;
+      return;
+    }
+  }
+}
+
+// ============================================
+// PRICE CALCULATION
+// ============================================
+
 function calculatePriceChange(state: MarketState, deltaSeconds: number): number {
-  // Base movement from trend (stronger trends = more directional movement)
-  const trendEffect = state.trend * 0.001 * deltaSeconds;
+  const { phase, momentum, activeEvent, eventIntensity, price } = state;
+  const volatility = VOLATILITY_BY_PHASE[phase];
   
-  // Random walk component (scaled by volatility)
-  const noise = (Math.random() - 0.5) * 0.002 * state.volatility * Math.sqrt(deltaSeconds);
+  // 1. Base random walk
+  const randomComponent = (Math.random() - 0.5) * 2 * volatility.base * Math.sqrt(deltaSeconds);
   
-  // Momentum effect (accelerating/decelerating)
-  const momentumEffect = state.momentum * 0.0005 * deltaSeconds;
+  // 2. Momentum component
+  const momentumComponent = momentum * volatility.base * 2 * deltaSeconds;
   
-  // Combine effects
-  const totalChange = trendEffect + noise + momentumEffect;
+  // 3. Event component
+  let eventComponent = 0;
+  if (activeEvent !== 'none') {
+    const magnitude = randomInRange(
+      EVENT_MAGNITUDES[activeEvent].min,
+      EVENT_MAGNITUDES[activeEvent].max
+    );
+    const direction = getEventDirection(activeEvent);
+    eventComponent = (magnitude / (state.eventDuration / 1000)) * eventIntensity * direction * deltaSeconds;
+  }
   
-  return totalChange;
+  // 4. Mean reversion (very weak, only at extremes)
+  let meanReversionComponent = 0;
+  if (price > DC_FAIR_VALUE * 20) {
+    meanReversionComponent = -0.0001 * (price / DC_FAIR_VALUE) * deltaSeconds;
+  } else if (price < DC_FAIR_VALUE * 0.05) {
+    meanReversionComponent = 0.0001 * (DC_FAIR_VALUE / price) * deltaSeconds;
+  }
+  
+  // 5. Volatility spike (5% chance per tick)
+  let volatilitySpike = 0;
+  if (Math.random() < 0.05) {
+    volatilitySpike = (Math.random() - 0.5) * volatility.max;
+  }
+  
+  return randomComponent + momentumComponent + eventComponent + meanReversionComponent + volatilitySpike;
 }
 
 // ============================================
-// PRICE UPDATES (Called by server/cron)
+// PRICE UPDATES
 // ============================================
 
-/**
- * Update price - should be called every second by the client or a cron job
- * Returns the new price and updated market state
- */
 export async function tickPrice(): Promise<{ 
   price: number; 
-  trend: number; 
-  volatility: number;
+  phase: MarketPhase;
+  phaseProgress: number;
   momentum: number;
-  trendDuration: number;
-  event?: string 
+  volatility: string;
+  activeEvent: ExtremeEvent;
+  eventIntensity: number;
+  signals: Signals;
+  allTimeHigh: number;
+  allTimeLow: number;
 }> {
   const state = await getMarketState();
   const now = Date.now();
-  const deltaSeconds = Math.min(10, (now - state.lastUpdate) / 1000); // Cap at 10s to prevent huge jumps
+  const deltaSeconds = Math.min(10, (now - state.lastUpdate) / 1000);
   
   if (deltaSeconds < 0.5) {
-    // Too soon, return current state
+    const phaseProgress = Math.min(1, (now - state.phaseStartTime) / state.phaseDuration);
     return {
       price: state.price,
-      trend: state.trend,
-      volatility: state.volatility,
+      phase: state.phase,
+      phaseProgress,
       momentum: state.momentum,
-      trendDuration: state.trendDuration,
+      volatility: getVolatilityName(VOLATILITY_BY_PHASE[state.phase].base),
+      activeEvent: state.activeEvent,
+      eventIntensity: state.eventIntensity,
+      signals: {
+        phaseWarning: phaseProgress > 0.8,
+        oversold: false,
+        overbought: false,
+        momentumDivergence: false,
+        whaleAlert: ['whale_pump', 'whale_dump', 'mega_pump'].includes(state.activeEvent),
+      },
+      allTimeHigh: state.allTimeHigh,
+      allTimeLow: state.allTimeLow,
     };
   }
 
-  let newPrice = state.price;
-  let newTrend = state.trend;
-  let newVolatility = state.volatility;
-  let newMomentum = state.momentum;
-  let newTrendDuration = state.trendDuration - deltaSeconds;
-  let event: string | undefined;
-
-  // Check for rare events (0.1% chance per tick)
-  const eventRoll = Math.random();
-  if (eventRoll < 0.001) {
-    // Crash! -15% to -40%
-    const crashPercent = 0.15 + Math.random() * 0.25;
-    newPrice = state.price * (1 - crashPercent);
-    event = "krach";
-    newTrend = -0.8 - Math.random() * 0.2;
-    newVolatility = 1.5 + Math.random() * 0.5;
-    newTrendDuration = 30 + Math.floor(Math.random() * 60);
-  } else if (eventRoll < 0.002) {
-    // Pump! +20% to +50%
-    const pumpPercent = 0.20 + Math.random() * 0.30;
-    newPrice = state.price * (1 + pumpPercent);
-    event = "pump";
-    newTrend = 0.8 + Math.random() * 0.2;
-    newVolatility = 1.5 + Math.random() * 0.5;
-    newTrendDuration = 30 + Math.floor(Math.random() * 60);
-  } else {
-    // Normal price movement
-    const priceChange = calculatePriceChange(state, deltaSeconds);
-    newPrice = state.price * (1 + priceChange);
-    
-    // Check if we need a new trend
-    if (newTrendDuration <= 0) {
-      const newTrendParams = generateNewTrend(newPrice);
-      newTrend = newTrendParams.trend;
-      newVolatility = newTrendParams.volatility;
-      newMomentum = newTrendParams.momentum;
-      newTrendDuration = newTrendParams.duration;
-    }
+  // Update phase progress
+  const elapsed = now - state.phaseStartTime;
+  if (elapsed >= state.phaseDuration) {
+    transitionPhase(state, now);
   }
-
-  // Clamp price
-  newPrice = Math.max(DC_MIN_PRICE, Math.min(DC_MAX_PRICE, newPrice));
-  newPrice = Math.round(newPrice * 10000) / 10000;
-
-  // Update state
-  const newState: MarketState = {
-    price: newPrice,
-    trend: newTrend,
-    volatility: newVolatility,
-    momentum: newMomentum,
-    trendDuration: newTrendDuration,
-    lastUpdate: now,
-  };
   
-  await saveMarketState(newState);
+  // Check for events
+  checkForEvents(state, now);
+  
+  // Update momentum with decay
+  state.momentum *= 0.995;
+  
+  // Phase influences momentum
+  const phaseInfluence: Record<MarketPhase, number> = {
+    accumulation: 0.001,
+    markup: 0.005,
+    euphoria: 0.01,
+    distribution: -0.002,
+    decline: -0.005,
+    capitulation: -0.01,
+    recovery: 0.003,
+  };
+  state.momentum += phaseInfluence[state.phase] * deltaSeconds;
+  state.momentum = Math.max(-1, Math.min(1, state.momentum));
+  
+  // Calculate price change
+  const priceChange = calculatePriceChange(state, deltaSeconds);
+  let newPrice = state.price * (1 + priceChange);
+  
+  // Apply bounds with bounce
+  if (newPrice < DC_MIN_PRICE) {
+    newPrice = DC_MIN_PRICE * (1 + Math.random() * 0.1);
+    state.momentum = Math.abs(state.momentum) * 0.5;
+  }
+  if (newPrice > DC_MAX_PRICE) {
+    newPrice = DC_MAX_PRICE * (1 - Math.random() * 0.1);
+    state.momentum = -Math.abs(state.momentum) * 0.5;
+  }
+  
+  newPrice = Math.round(newPrice * 10000) / 10000;
+  
+  // Update ATH/ATL
+  state.allTimeHigh = Math.max(state.allTimeHigh, newPrice);
+  state.allTimeLow = Math.min(state.allTimeLow, newPrice);
+  
+  const previousPrice = state.price;
+  state.price = newPrice;
+  state.lastUpdate = now;
 
-  // Save price point (every ~5 seconds to avoid DB bloat)
+  await saveMarketState(state);
+
+  // Save price point (every ~5 seconds)
   if (deltaSeconds >= 5) {
+    const trendValue = Math.round(state.momentum * 10);
     await prisma.$executeRaw`
       INSERT INTO "DahkaCoinPrice" (id, price, trend, "createdAt")
-      VALUES (gen_random_uuid()::text, ${newPrice}, ${Math.round(newTrend * 10)}, NOW())
+      VALUES (gen_random_uuid()::text, ${newPrice}, ${trendValue}, NOW())
     `;
   }
 
+  // Calculate signals
+  const phaseProgress = Math.min(1, (now - state.phaseStartTime) / state.phaseDuration);
+  const priceDirection = newPrice > previousPrice ? 1 : -1;
+  const momentumDirection = state.momentum > 0 ? 1 : -1;
+  
   return {
     price: newPrice,
-    trend: newTrend,
-    volatility: newVolatility,
-    momentum: newMomentum,
-    trendDuration: newTrendDuration,
-    event,
+    phase: state.phase,
+    phaseProgress,
+    momentum: state.momentum,
+    volatility: getVolatilityName(VOLATILITY_BY_PHASE[state.phase].base),
+    activeEvent: state.activeEvent,
+    eventIntensity: state.eventIntensity,
+    signals: {
+      phaseWarning: phaseProgress > 0.8,
+      oversold: priceChange < -0.10,
+      overbought: priceChange > 0.15,
+      momentumDivergence: priceDirection !== momentumDirection && Math.abs(state.momentum) > 0.3,
+      whaleAlert: ['whale_pump', 'whale_dump', 'mega_pump'].includes(state.activeEvent),
+    },
+    allTimeHigh: state.allTimeHigh,
+    allTimeLow: state.allTimeLow,
   };
 }
 
-/**
- * Get current price without updating (for read-only operations)
- */
 export async function getCurrentPrice(): Promise<{ price: number; trend: number }> {
   const state = await getMarketState();
-  return { price: state.price, trend: Math.round(state.trend * 2) }; // Convert to -2 to 2 scale
+  return { price: state.price, trend: Math.round(state.momentum * 2) };
 }
 
 // ============================================
@@ -261,11 +518,11 @@ export async function getCurrentPrice(): Promise<{ price: number; trend: number 
 export async function buyDahkaCoin(euroAmount: number): Promise<TradeResult> {
   const session = await auth();
   if (!session?.user?.id) {
-    return { success: false, error: "non connecté" };
+    return { success: false, error: "non connecte" };
   }
 
   if (euroAmount <= 0 || euroAmount < 0.10) {
-    return { success: false, error: "minimum 0.10€" };
+    return { success: false, error: "minimum 0.10eur" };
   }
 
   const userId = session.user.id;
@@ -316,7 +573,7 @@ export async function buyDahkaCoin(euroAmount: number): Promise<TradeResult> {
 
     await tx.$executeRaw`
       INSERT INTO "Transaction" (id, "userId", type, amount, description, "createdAt")
-      VALUES (gen_random_uuid()::text, ${userId}, 'dc_buy', ${-euroAmount}, ${'achat ' + dcAmount.toFixed(4) + ' DC @ ' + price.toFixed(4) + '€'}, NOW())
+      VALUES (gen_random_uuid()::text, ${userId}, 'dc_buy', ${-euroAmount}, ${'achat ' + dcAmount.toFixed(4) + ' DC @ ' + price.toFixed(4) + 'eur'}, NOW())
     `;
   });
 
@@ -332,7 +589,7 @@ export async function buyDahkaCoin(euroAmount: number): Promise<TradeResult> {
 export async function sellDahkaCoin(dcAmount: number): Promise<TradeResult> {
   const session = await auth();
   if (!session?.user?.id) {
-    return { success: false, error: "non connecté" };
+    return { success: false, error: "non connecte" };
   }
 
   if (dcAmount <= 0) {
@@ -384,7 +641,7 @@ export async function sellDahkaCoin(dcAmount: number): Promise<TradeResult> {
 
     await tx.$executeRaw`
       INSERT INTO "Transaction" (id, "userId", type, amount, description, "createdAt")
-      VALUES (gen_random_uuid()::text, ${userId}, 'dc_sell', ${netEuros}, ${'vente ' + dcAmount.toFixed(4) + ' DC @ ' + price.toFixed(4) + '€ (frais: ' + fee.toFixed(2) + '€)'}, NOW())
+      VALUES (gen_random_uuid()::text, ${userId}, 'dc_sell', ${netEuros}, ${'vente ' + dcAmount.toFixed(4) + ' DC @ ' + price.toFixed(4) + 'eur (frais: ' + fee.toFixed(2) + 'eur)'}, NOW())
     `;
   });
 
@@ -404,7 +661,12 @@ export async function sellDahkaCoin(dcAmount: number): Promise<TradeResult> {
 export async function getDCState(period: "1h" | "24h" | "7d" = "1h"): Promise<DCState> {
   const session = await auth();
   const marketState = await getMarketState();
+  const now = Date.now();
 
+  // Calculate period filter
+  const periodMs = period === "1h" ? 3600000 : period === "24h" ? 86400000 : 604800000;
+  
+  // Get price history from DB
   const history = await prisma.$queryRaw<{ price: string; createdAt: Date }[]>`
     SELECT price::text, "createdAt"
     FROM "DahkaCoinPrice"
@@ -412,9 +674,8 @@ export async function getDCState(period: "1h" | "24h" | "7d" = "1h"): Promise<DC
     ORDER BY "createdAt" ASC
   `;
 
-  const now = new Date();
-  const periodMs = period === "1h" ? 3600000 : period === "24h" ? 86400000 : 604800000;
-  const filteredHistory = history.filter(h => now.getTime() - new Date(h.createdAt).getTime() < periodMs);
+  const nowDate = new Date();
+  const filteredHistory = history.filter(h => nowDate.getTime() - new Date(h.createdAt).getTime() < periodMs);
 
   const priceHistory = filteredHistory.map(h => ({
     price: parseFloat(h.price),
@@ -422,6 +683,9 @@ export async function getDCState(period: "1h" | "24h" | "7d" = "1h"): Promise<DC
   }));
 
   const lastUpdate = history.length > 0 ? history[history.length - 1].createdAt : null;
+
+  // Calculate phase progress
+  const phaseProgress = Math.min(1, (now - marketState.phaseStartTime) / marketState.phaseDuration);
 
   let userDC = 0;
   let userAvgPrice: number | null = null;
@@ -442,12 +706,28 @@ export async function getDCState(period: "1h" | "24h" | "7d" = "1h"): Promise<DC
     }
   }
 
+  // Calculate signals based on recent price changes
+  const recentPrices = priceHistory.slice(-30);
+  const oldPrice = recentPrices.length > 0 ? recentPrices[0].price : marketState.price;
+  const recentChange = (marketState.price - oldPrice) / oldPrice;
+
   return {
     currentPrice: marketState.price,
-    trend: marketState.trend,
-    volatility: marketState.volatility,
+    phase: marketState.phase,
+    phaseProgress,
     momentum: marketState.momentum,
-    trendDuration: marketState.trendDuration,
+    volatility: getVolatilityName(VOLATILITY_BY_PHASE[marketState.phase].base),
+    activeEvent: marketState.activeEvent,
+    eventIntensity: marketState.eventIntensity,
+    signals: {
+      phaseWarning: phaseProgress > 0.8,
+      oversold: recentChange < -0.30,
+      overbought: recentChange > 0.50,
+      momentumDivergence: false, // Would need more context
+      whaleAlert: ['whale_pump', 'whale_dump', 'mega_pump'].includes(marketState.activeEvent),
+    },
+    allTimeHigh: marketState.allTimeHigh,
+    allTimeLow: marketState.allTimeLow,
     priceHistory,
     userDC,
     userAvgPrice,
