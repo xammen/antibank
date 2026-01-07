@@ -35,6 +35,15 @@ interface RobberyHistoryItem {
   createdAt: Date;
 }
 
+interface GlobalRobberyHistoryItem {
+  id: string;
+  success: boolean;
+  amount: number;
+  robberName: string;
+  victimName: string;
+  createdAt: Date;
+}
+
 interface ActiveBounty {
   id: string;
   targetId: string;
@@ -50,6 +59,7 @@ interface InitialData {
   canRob: boolean;
   cooldownEnds?: number;
   history: RobberyHistoryItem[];
+  globalHistory: GlobalRobberyHistoryItem[];
   bounties: ActiveBounty[];
   antibankInfo: {
     canRob: boolean;
@@ -69,6 +79,7 @@ interface RobberyClientProps {
 export function RobberyClient({ userId, initialData }: RobberyClientProps) {
   const [targets, setTargets] = useState<RobberyTarget[]>(initialData.targets);
   const [history, setHistory] = useState<RobberyHistoryItem[]>(initialData.history);
+  const [globalHistory, setGlobalHistory] = useState<GlobalRobberyHistoryItem[]>(initialData.globalHistory);
   const [bounties, setBounties] = useState<ActiveBounty[]>(initialData.bounties);
   const [canRob, setCanRob] = useState(initialData.canRob);
   const [cooldownEnds, setCooldownEnds] = useState<number | undefined>(initialData.cooldownEnds);
@@ -443,40 +454,34 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
         )}
       </section>
 
-      {/* History */}
+      {/* Global History */}
       <section>
         <h2 className="text-[0.75rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">
-          historique
+          derniers braquages
         </h2>
-        {history.length === 0 ? (
+        {globalHistory.length === 0 ? (
           <p className="text-[var(--text-muted)] text-sm text-center py-4">
             aucun braquage
           </p>
         ) : (
           <div className="flex flex-col gap-1">
-            {history.map((item) => (
+            {globalHistory.map((item) => (
               <div
                 key={item.id}
-                className="flex items-center justify-between p-2 text-[0.75rem]"
+                className="flex items-center justify-between p-2 text-[0.75rem] border-b border-[var(--line)]/30 last:border-0"
               >
                 <span>
-                  {item.isRobber ? (
-                    item.success ? (
-                      <span className="text-green-400">
-                        +{item.amount.toFixed(2)} (braque {item.victimName})
-                      </span>
-                    ) : (
-                      <span className="text-red-400">
-                        -{item.amount.toFixed(2)} (échec sur {item.victimName})
-                      </span>
-                    )
+                  {item.success ? (
+                    <span className="text-green-400">
+                      {item.robberName} <span className="text-[var(--text-muted)]">braque</span> {item.victimName} <span className="text-green-500">+{item.amount.toFixed(2)}€</span>
+                    </span>
                   ) : (
                     <span className="text-red-400">
-                      -{item.amount.toFixed(2)} (braque par {item.robberName})
+                      {item.robberName} <span className="text-[var(--text-muted)]">rate</span> {item.victimName} <span className="text-red-500">-{item.amount.toFixed(2)}€</span>
                     </span>
                   )}
                 </span>
-                <span className="text-[var(--text-muted)]">
+                <span className="text-[var(--text-muted)] text-[0.65rem]">
                   {formatTimeAgo(item.createdAt)}
                 </span>
               </div>

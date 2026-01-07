@@ -5,6 +5,7 @@ import {
   getRobberyTargets,
   getRobberyCooldown,
   getRobberyHistory,
+  getGlobalRobberyHistory,
   getAntibankRobberyInfo,
 } from "@/actions/robbery";
 import { getActiveBounties } from "@/actions/bounty";
@@ -18,10 +19,11 @@ export default async function BraquagesPage() {
   }
 
   // Charger toutes les données en parallèle côté serveur
-  const [targetsRes, cooldownRes, historyRes, bountiesRes, antibankRes, heistRes] = await Promise.all([
+  const [targetsRes, cooldownRes, historyRes, globalHistoryRes, bountiesRes, antibankRes, heistRes] = await Promise.all([
     getRobberyTargets(),
     getRobberyCooldown(),
     getRobberyHistory(10),
+    getGlobalRobberyHistory(20),
     getActiveBounties(),
     getAntibankRobberyInfo(),
     getHeistProgress(),
@@ -32,6 +34,7 @@ export default async function BraquagesPage() {
     canRob: cooldownRes.canRob,
     cooldownEnds: cooldownRes.cooldownEnds,
     history: historyRes.success && historyRes.history ? historyRes.history : [],
+    globalHistory: globalHistoryRes.success && globalHistoryRes.history ? globalHistoryRes.history : [],
     bounties: bountiesRes.success && bountiesRes.bounties ? bountiesRes.bounties : [],
     antibankInfo: antibankRes,
     heistProgress: heistRes,

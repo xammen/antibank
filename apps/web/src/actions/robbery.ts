@@ -587,3 +587,45 @@ export async function getRobberyHistory(limit: number = 10): Promise<{
     }))
   };
 }
+
+export async function getGlobalRobberyHistory(limit: number = 20): Promise<{
+  success: boolean;
+  history?: Array<{
+    id: string;
+    success: boolean;
+    amount: number;
+    robberName: string;
+    victimName: string;
+    createdAt: Date;
+  }>;
+}> {
+  const robberies = await prisma.$queryRaw<Array<{
+    id: string;
+    success: boolean;
+    amount: string;
+    createdAt: Date;
+    robberName: string;
+    victimName: string;
+  }>>`
+    SELECT r.id, r.success, r.amount::text, r."createdAt",
+           robber."discordUsername" as "robberName",
+           victim."discordUsername" as "victimName"
+    FROM "Robbery" r
+    JOIN "User" robber ON r."robberId" = robber.id
+    JOIN "User" victim ON r."victimId" = victim.id
+    ORDER BY r."createdAt" DESC
+    LIMIT ${limit}
+  `;
+
+  return {
+    success: true,
+    history: robberies.map(r => ({
+      id: r.id,
+      success: r.success,
+      amount: parseFloat(r.amount),
+      robberName: r.robberName,
+      victimName: r.victimName,
+      createdAt: r.createdAt
+    }))
+  };
+}
