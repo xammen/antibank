@@ -5,6 +5,7 @@ import Link from "next/link";
 import { playDiceVsBot, type PlayVsBotResult, getAvailablePlayers, getPendingDiceChallenges, createDiceChallenge, acceptDiceChallenge, getRecentDiceResults, getDiceHistory } from "@/actions/dice";
 import { Balance } from "@/components/balance";
 import { BalanceProvider, useBalance } from "@/hooks/use-balance";
+import { ChallengeNotification } from "@/components/challenge-notification";
 
 interface DiceGameClientProps {
   userBalance: string;
@@ -105,13 +106,12 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
   const [seenResultIds, setSeenResultIds] = useState<Set<string>>(new Set());
   const [history, setHistory] = useState<HistoryGame[]>([]);
 
+  // Always poll for challenges (even in bot mode, to show notifications)
   useEffect(() => {
-    if (mode === "pvp") {
-      loadPvpData();
-      const interval = setInterval(loadPvpData, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [mode]);
+    loadPvpData();
+    const interval = setInterval(loadPvpData, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Load history on mount and refresh periodically
   useEffect(() => {
@@ -250,9 +250,40 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
         : "lose"
     : "idle";
 
+  // Handle challenge notification accept
+  const handleNotificationAccept = async (challenge: { id: string; amount: number | string; gameType: "dice" | "pfc"; challenger: string }) => {
+    // Switch to PvP mode and accept the challenge
+    setMode("pvp");
+    const matchingChallenge = challenges.received.find(c => c.id === challenge.id);
+    if (matchingChallenge) {
+      await handleAccept(matchingChallenge);
+    }
+  };
+
+  // Handle challenge notification dismiss (just hide it, don't cancel)
+  const handleNotificationDismiss = () => {
+    // Just dismisses the notification, challenge stays pending
+  };
+
+  // Format challenges for notification component
+  const notificationChallenges = challenges.received.map(c => ({
+    id: c.id,
+    amount: c.amount as number,
+    gameType: "dice" as const,
+    challenger: c.player1?.discordUsername || "???",
+  }));
+
   return (
-    <main className="min-h-screen flex flex-col">
-      {/* Header */}
+    <>
+      {/* Challenge notifications */}
+      <ChallengeNotification
+        challenges={notificationChallenges}
+        onAccept={handleNotificationAccept}
+        onDismiss={handleNotificationDismiss}
+      />
+
+      <main className="min-h-screen flex flex-col">
+        {/* Header */}
       <header className="flex items-center justify-between p-4 border-b border-[var(--line)]">
         <div className="flex items-center gap-4">
           <Link
@@ -668,6 +699,7 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
         </div>
       </div>
     </main>
+    </>
   );
 }
 
