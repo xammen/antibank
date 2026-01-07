@@ -146,7 +146,7 @@ export function JusticeClient({ userId }: JusticeClientProps) {
 
   const formatTimeRemaining = (endsAt: Date) => {
     const remaining = new Date(endsAt).getTime() - Date.now();
-    if (remaining <= 0) return "termine";
+    if (remaining <= 0) return "terminé";
     const minutes = Math.floor(remaining / (1000 * 60));
     const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
     return `${minutes}m ${seconds}s`;

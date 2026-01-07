@@ -276,18 +276,18 @@ export function RobberyClient({ userId }: RobberyClientProps) {
           <p className="text-center">
             {lastResult.success ? (
               <>
-                <span className="text-green-400">braquage reussi!</span>
+                <span className="text-green-400">braquage réussi!</span>
                 <br />
                 <span className="text-[var(--text-muted)] text-sm">
-                  +{lastResult.amount.toFixed(2)} voles a {lastResult.victimName}
+                  +{lastResult.amount.toFixed(2)} volés à {lastResult.victimName}
                 </span>
               </>
             ) : (
               <>
-                <span className="text-red-400">braquage rate!</span>
+                <span className="text-red-400">braquage raté!</span>
                 <br />
                 <span className="text-[var(--text-muted)] text-sm">
-                  -{lastResult.amount.toFixed(2)} de penalite
+                  -{lastResult.amount.toFixed(2)} de pénalité
                 </span>
               </>
             )}
@@ -312,7 +312,7 @@ export function RobberyClient({ userId }: RobberyClientProps) {
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium">progression</span>
                 <span className="text-[0.7rem] text-[var(--text-muted)]">
-                  etape {heistProgress.currentStage}/5
+                  étape {heistProgress.currentStage}/5
                 </span>
               </div>
               <div className="h-1 w-full bg-[#1a1a1a] overflow-hidden">
@@ -350,7 +350,7 @@ export function RobberyClient({ userId }: RobberyClientProps) {
                       </span>
                     </div>
                     {stage.complete && <span className="text-green-500 text-[0.8rem]">✓</span>}
-                    {isLocked && <span className="text-[0.7rem] text-[var(--text-muted)]">(verrouille)</span>}
+                    {isLocked && <span className="text-[0.7rem] text-[var(--text-muted)]">(verrouillé)</span>}
                   </button>
 
                   {/* Stage Details */}
@@ -395,7 +395,7 @@ export function RobberyClient({ userId }: RobberyClientProps) {
                               )}
                               {heistProgress.bonuses.lossReduction > 0 && (
                                 <div className="flex justify-between text-green-400">
-                                  <span>- perte en cas d'echec</span>
+                                  <span>- perte en cas d'échec</span>
                                   <span>-{heistProgress.bonuses.lossReduction}%</span>
                                 </div>
                               )}
@@ -425,7 +425,7 @@ export function RobberyClient({ userId }: RobberyClientProps) {
                                 </span>
                               </div>
                               <div className="flex justify-between text-[0.75rem]">
-                                <span className="text-[var(--text-muted)]">perte echec</span>
+                                <span className="text-[var(--text-muted)]">perte échec</span>
                                 <span className="text-red-400">
                                   {heistProgress.finalStats.failLoss}%
                                 </span>
@@ -645,7 +645,7 @@ export function RobberyClient({ userId }: RobberyClientProps) {
                       </span>
                     ) : (
                       <span className="text-red-400">
-                        -{item.amount.toFixed(2)} (echec sur {item.victimName})
+                        -{item.amount.toFixed(2)} (échec sur {item.victimName})
                       </span>
                     )
                   ) : (
@@ -668,7 +668,7 @@ export function RobberyClient({ userId }: RobberyClientProps) {
         <p className="text-[0.7rem] text-[var(--text-muted)]">
           40% de chances de base | +10% si la cible est 5x+ plus riche
           <br />
-          succes: vole 10-20% | echec: perd 5% de ta balance
+          succès: vole 10-20% | échec: perd 5% de ta balance
           <br />
           cooldown: 3h entre chaque tentative
         </p>
