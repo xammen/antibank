@@ -8,10 +8,10 @@ import { auth } from "@/lib/auth";
 // ============================================
 
 const DC_MIN_PRICE = 0.01;
-const DC_MAX_PRICE = 500;
+const DC_MAX_PRICE = 100;  // Hard cap - never above 100€
 const DC_INITIAL_PRICE = 1.00;
 const DC_SELL_FEE = 0.02;
-const DC_FAIR_VALUE = 5.00;
+const DC_FAIR_VALUE = 2.00;  // Target ~1-10€, pumps to 20-30€ rare
 
 // ============================================
 // TYPES
@@ -460,23 +460,24 @@ export async function tickPrice(): Promise<{
     const pumpImbalance = state.recentPumps - state.recentCrashes;
     const priceVsFair = state.price / DC_FAIR_VALUE;
     
-    // Force crash if: 3+ more pumps than crashes OR price > 10x fair value
-    if (pumpImbalance >= 3 || priceVsFair > 10) {
-      // Forced correction - severity based on imbalance
-      if (pumpImbalance >= 5 || priceVsFair > 20) {
-        event = 'rug_pull'; // Catastrophic correction
-      } else if (pumpImbalance >= 4 || priceVsFair > 15) {
-        event = 'flash_crash'; // Major correction
+    // Price thresholds: fair=2€, so 10€=5x, 20€=10x, 30€=15x
+    // Force crash if: 2+ more pumps than crashes OR price getting too high
+    if (pumpImbalance >= 2 || priceVsFair > 5) {  // >10€ triggers correction
+      // Forced correction - severity based on price level
+      if (priceVsFair > 15 || pumpImbalance >= 4) {  // >30€ = rug pull
+        event = 'rug_pull';
+      } else if (priceVsFair > 10 || pumpImbalance >= 3) {  // >20€ = flash crash
+        event = 'flash_crash';
       } else {
-        event = 'whale_dump'; // Moderate correction
+        event = 'whale_dump';  // >10€ = whale dump
       }
-      state.recentPumps = 0; // Reset after forced correction
+      state.recentPumps = 0;
     }
-    // Force pump if: 3+ more crashes than pumps OR price < 0.1x fair value
-    else if (pumpImbalance <= -3 || priceVsFair < 0.1) {
-      if (pumpImbalance <= -5 || priceVsFair < 0.05) {
+    // Force pump if: 2+ more crashes than pumps OR price too low
+    else if (pumpImbalance <= -2 || priceVsFair < 0.25) {  // <0.50€
+      if (pumpImbalance <= -4 || priceVsFair < 0.1) {
         event = 'mega_pump';
-      } else if (pumpImbalance <= -4 || priceVsFair < 0.08) {
+      } else if (pumpImbalance <= -3 || priceVsFair < 0.15) {
         event = 'short_squeeze';
       } else {
         event = 'whale_pump';
