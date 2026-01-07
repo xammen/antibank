@@ -514,15 +514,31 @@ export async function requestDiceRematch(
     : (updatedGame.player1WantsRematch && true);
 
   if (bothWantRematch) {
-    // Créer automatiquement une nouvelle partie
-    const newGame = await prisma.diceGame.create({
-      data: {
-        player1Id: game.player1Id,
-        player2Id: game.player2Id!,
-        amount: game.amount,
-        status: "pending",
-        expiresAt: new Date(Date.now() + 30000), // 30s pour accepter
-      },
+    // Les deux veulent rejouer - créer directement une partie en "playing"
+    // et déduire les mises immédiatement
+    const newGame = await prisma.$transaction(async (tx) => {
+      // Déduire les mises des deux joueurs
+      await tx.user.update({
+        where: { id: game.player1Id },
+        data: { balance: { decrement: amount } },
+      });
+      await tx.user.update({
+        where: { id: game.player2Id! },
+        data: { balance: { decrement: amount } },
+      });
+
+      // Créer la partie directement en "playing"
+      const created = await tx.diceGame.create({
+        data: {
+          player1Id: game.player1Id,
+          player2Id: game.player2Id!,
+          amount: game.amount,
+          status: "playing",
+          expiresAt: new Date(Date.now() + 30000), // 30s pour jouer
+        },
+      });
+
+      return created;
     });
 
     // Reset les votes sur l'ancienne partie
