@@ -16,6 +16,8 @@ import {
   type GameType,
   type GameRoomPublic,
 } from "@/actions/game-room";
+import { DiceAnimation } from "@/components/arena/dice-animation";
+import { PFCAnimation } from "@/components/arena/pfc-animation";
 
 interface ArenaClientProps {
   userId: string;
@@ -45,6 +47,10 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
 
   // PFC choice
   const [pfcChoice, setPfcChoice] = useState<"pierre" | "feuille" | "ciseaux" | null>(null);
+
+  // Animation state
+  const [showAnimation, setShowAnimation] = useState(false);
+  const [animationComplete, setAnimationComplete] = useState(false);
 
   // Load rooms and check for active room
   const loadRooms = useCallback(async () => {
@@ -91,6 +97,28 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
     const interval = setInterval(poll, 1000);
     return () => clearInterval(interval);
   }, [view, currentRoom, loadRooms]);
+
+  // Trigger animation when game starts (status changes to playing/finished)
+  useEffect(() => {
+    if (!currentRoom) return;
+    
+    // For dice: trigger animation when status becomes "finished" (dice are rolled server-side)
+    if (currentRoom.gameType === "dice" && currentRoom.status === "finished" && !animationComplete) {
+      setShowAnimation(true);
+    }
+    
+    // For PFC: trigger animation when all players have made their choice
+    if (currentRoom.gameType === "pfc" && currentRoom.status === "finished" && !animationComplete) {
+      setShowAnimation(true);
+    }
+  }, [currentRoom, animationComplete]);
+
+  // Reset animation state when leaving room
+  const resetAnimationState = useCallback(() => {
+    setShowAnimation(false);
+    setAnimationComplete(false);
+    setPfcChoice(null);
+  }, []);
 
   // Initial load
   useEffect(() => {
@@ -168,6 +196,7 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
     if (res.success) {
       setCurrentRoom(null);
       setView("lobby");
+      resetAnimationState();
       loadRooms();
     } else {
       setError(res.error || "erreur");
@@ -478,7 +507,7 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
               )}
               {currentRoom.status === "playing" && currentRoom.gameType === "dice" && (
                 <p className="text-[var(--text-muted)]">
-                  lancé des dés en cours...
+                  lancer des des en cours...
                 </p>
               )}
               {currentRoom.status === "playing" && currentRoom.gameType === "pfc" && (
@@ -493,7 +522,7 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
                           className="text-4xl p-4 border border-[var(--line)] hover:border-[var(--text)] 
                             hover:bg-[rgba(255,255,255,0.05)] transition-colors disabled:opacity-30"
                         >
-                          pierre
+                          🪨
                         </button>
                         <button
                           onClick={() => handlePFCChoice("feuille")}
@@ -501,7 +530,7 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
                           className="text-4xl p-4 border border-[var(--line)] hover:border-[var(--text)] 
                             hover:bg-[rgba(255,255,255,0.05)] transition-colors disabled:opacity-30"
                         >
-                          feuille
+                          📄
                         </button>
                         <button
                           onClick={() => handlePFCChoice("ciseaux")}
@@ -509,18 +538,56 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
                           className="text-4xl p-4 border border-[var(--line)] hover:border-[var(--text)] 
                             hover:bg-[rgba(255,255,255,0.05)] transition-colors disabled:opacity-30"
                         >
-                          ciseaux
+                          ✂️
                         </button>
                       </div>
                     </div>
                   ) : (
                     <p className="text-[var(--text-muted)]">
-                      tu as choisi {pfcChoice} - en attente des autres...
+                      tu as choisi {pfcChoice === "pierre" ? "🪨" : pfcChoice === "feuille" ? "📄" : "✂️"} - en attente des autres...
                     </p>
                   )}
                 </div>
               )}
-              {currentRoom.status === "finished" && (
+              
+              {/* Animation for finished games */}
+              {currentRoom.status === "finished" && showAnimation && !animationComplete && (
+                <>
+                  {currentRoom.gameType === "dice" && (
+                    <DiceAnimation
+                      players={currentRoom.players.map(p => ({
+                        id: p.id,
+                        username: p.username,
+                        odrzerId: p.odrzerId,
+                        dice1: p.dice1,
+                        dice2: p.dice2,
+                        roll: p.roll,
+                        rank: p.rank,
+                        profit: p.profit,
+                      }))}
+                      currentUserId={userId}
+                      onComplete={() => setAnimationComplete(true)}
+                    />
+                  )}
+                  {currentRoom.gameType === "pfc" && (
+                    <PFCAnimation
+                      players={currentRoom.players.map(p => ({
+                        id: p.id,
+                        username: p.username,
+                        odrzerId: p.odrzerId,
+                        choice: p.choice as "pierre" | "feuille" | "ciseaux" | null,
+                        rank: p.rank,
+                        profit: p.profit,
+                      }))}
+                      currentUserId={userId}
+                      onComplete={() => setAnimationComplete(true)}
+                    />
+                  )}
+                </>
+              )}
+              
+              {/* Results after animation */}
+              {currentRoom.status === "finished" && animationComplete && (
                 <div>
                   <p className="text-lg mb-4">partie terminee!</p>
                   {/* Results */}
@@ -539,7 +606,7 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
                         >
                           <div className="flex items-center gap-3">
                             <span className="text-lg">
-                              {p.rank === 1 ? "first" : `#${p.rank}`}
+                              {p.rank === 1 ? "🥇" : p.rank === 2 ? "🥈" : p.rank === 3 ? "🥉" : `#${p.rank}`}
                             </span>
                             <span className="text-sm">{p.username}</span>
                             {currentRoom.gameType === "dice" && p.dice1 && p.dice2 && (
@@ -549,14 +616,14 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
                             )}
                             {currentRoom.gameType === "pfc" && p.choice && (
                               <span className="text-[var(--text-muted)] text-sm">
-                                ({p.choice})
+                                ({p.choice === "pierre" ? "🪨" : p.choice === "feuille" ? "📄" : "✂️"})
                               </span>
                             )}
                           </div>
                           <span className={`text-sm ${
                             (p.profit || 0) >= 0 ? "text-green-400" : "text-red-400"
                           }`}>
-                            {(p.profit || 0) >= 0 ? "+" : ""}{p.profit?.toFixed(2)}
+                            {(p.profit || 0) >= 0 ? "+" : ""}{p.profit?.toFixed(2)}€
                           </span>
                         </div>
                       ))}
@@ -596,12 +663,12 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
 
             {/* Actions */}
             <div className="flex gap-2 pt-4 border-t border-[var(--line)]">
-              {currentRoom.status === "finished" ? (
+              {currentRoom.status === "finished" && animationComplete && (
                 <button
                   onClick={() => {
                     setCurrentRoom(null);
                     setView("lobby");
-                    setPfcChoice(null);
+                    resetAnimationState();
                     loadRooms();
                   }}
                   className="flex-1 py-2 text-sm border border-[var(--line)] hover:border-[var(--text-muted)] 
@@ -609,30 +676,27 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
                 >
                   retour au lobby
                 </button>
-              ) : (
+              )}
+              {["waiting", "countdown"].includes(currentRoom.status) && (
                 <>
-                  {["waiting", "countdown"].includes(currentRoom.status) && (
-                    <>
-                      <button
-                        onClick={handleSetReady}
-                        className={`flex-1 py-2 text-sm border transition-colors ${
-                          myPlayer?.isReady
-                            ? "border-green-400 text-green-400 hover:bg-green-400/10"
-                            : "border-[var(--line)] hover:border-[var(--text-muted)] hover:bg-[rgba(255,255,255,0.03)]"
-                        }`}
-                      >
-                        {myPlayer?.isReady ? "pret!" : "je suis pret"}
-                      </button>
-                      <button
-                        onClick={handleLeaveRoom}
-                        disabled={loading}
-                        className="px-4 py-2 text-sm border border-red-400/50 text-red-400 
-                          hover:bg-red-400/10 transition-colors disabled:opacity-30"
-                      >
-                        quitter
-                      </button>
-                    </>
-                  )}
+                  <button
+                    onClick={handleSetReady}
+                    className={`flex-1 py-2 text-sm border transition-colors ${
+                      myPlayer?.isReady
+                        ? "border-green-400 text-green-400 hover:bg-green-400/10"
+                        : "border-[var(--line)] hover:border-[var(--text-muted)] hover:bg-[rgba(255,255,255,0.03)]"
+                    }`}
+                  >
+                    {myPlayer?.isReady ? "pret!" : "je suis pret"}
+                  </button>
+                  <button
+                    onClick={handleLeaveRoom}
+                    disabled={loading}
+                    className="px-4 py-2 text-sm border border-red-400/50 text-red-400 
+                      hover:bg-red-400/10 transition-colors disabled:opacity-30"
+                  >
+                    quitter
+                  </button>
                 </>
               )}
             </div>
