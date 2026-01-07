@@ -95,7 +95,8 @@ interface TradeResult {
 // PHASE CONFIG - Dynamic probabilities
 // ============================================
 
-const PHASE_BASE_DURATION = { min: 45, max: 180 }; // 45s to 3min
+const PHASE_BASE_DURATION = { min: 60, max: 120 }; // 1-2min per phase
+const EVENT_CHECK_INTERVAL = { min: 60, max: 90 }; // 60-90s between event checks
 
 // Base transition probabilities - modified by momentum and price
 function calculatePhaseTransitions(
@@ -297,7 +298,7 @@ async function getMarketState(): Promise<MarketState> {
       eventStartTime: 0,
       eventDuration: 0,
       eventDirection: 0,
-      nextEventIn: randomInRange(15, 45) * 1000,
+      nextEventIn: randomInRange(EVENT_CHECK_INTERVAL.min, EVENT_CHECK_INTERVAL.max) * 1000,
       allTimeHigh: DC_INITIAL_PRICE,
       allTimeLow: DC_INITIAL_PRICE,
       lastUpdate: now,
@@ -317,7 +318,25 @@ async function getMarketState(): Promise<MarketState> {
     return initialState;
   }
 
-  return JSON.parse(config[0].value) as MarketState;
+  const parsed = JSON.parse(config[0].value) as MarketState;
+  
+  // Validate and fix corrupted state
+  const now = Date.now();
+  if (!parsed.phaseDuration || parsed.phaseDuration <= 0 || isNaN(parsed.phaseDuration)) {
+    parsed.phaseDuration = randomInRange(PHASE_BASE_DURATION.min, PHASE_BASE_DURATION.max) * 1000;
+    parsed.phaseStartTime = now;
+  }
+  if (!parsed.phaseStartTime || isNaN(parsed.phaseStartTime)) {
+    parsed.phaseStartTime = now;
+  }
+  if (!parsed.nextEventIn || isNaN(parsed.nextEventIn)) {
+    parsed.nextEventIn = randomInRange(EVENT_CHECK_INTERVAL.min, EVENT_CHECK_INTERVAL.max) * 1000;
+  }
+  if (!parsed.momentum || isNaN(parsed.momentum)) {
+    parsed.momentum = 0;
+  }
+  
+  return parsed;
 }
 
 async function saveMarketState(state: MarketState): Promise<void> {
@@ -408,7 +427,7 @@ export async function tickPrice(): Promise<{
     if (eventElapsed >= state.eventDuration) {
       state.activeEvent = 'none';
       state.eventDuration = 0;
-      state.nextEventIn = randomInRange(20, 60) * 1000;
+      state.nextEventIn = randomInRange(EVENT_CHECK_INTERVAL.min, EVENT_CHECK_INTERVAL.max) * 1000;
     }
   } else if (state.nextEventIn <= 0) {
     // Try to trigger an event
@@ -449,23 +468,26 @@ export async function tickPrice(): Promise<{
       }
     }
     
-    state.nextEventIn = randomInRange(15, 45) * 1000;
+    state.nextEventIn = randomInRange(EVENT_CHECK_INTERVAL.min, EVENT_CHECK_INTERVAL.max) * 1000;
   }
 
   // Update momentum with decay
-  state.momentum *= 0.998;
+  state.momentum *= 0.995;
   
-  // Phase influences momentum
+  // Phase influences momentum - stronger influence for more dynamic feel
   const phaseInfluence: Record<MarketPhase, number> = {
-    accumulation: 0.001,
-    markup: 0.003,
-    euphoria: 0.005,
-    distribution: -0.002,
-    decline: -0.003,
-    capitulation: -0.005,
-    recovery: 0.002,
+    accumulation: 0.005,
+    markup: 0.015,
+    euphoria: 0.025,
+    distribution: -0.010,
+    decline: -0.015,
+    capitulation: -0.025,
+    recovery: 0.010,
   };
   state.momentum += phaseInfluence[state.phase] * deltaSeconds;
+  
+  // Add random momentum fluctuation for more dynamic probs
+  state.momentum += (Math.random() - 0.5) * 0.02 * deltaSeconds;
   state.momentum = Math.max(-1, Math.min(1, state.momentum));
 
   // Calculate price change
@@ -836,4 +858,32 @@ export async function getDCTransactions(limit: number = 20): Promise<{
     price: parseFloat(tx.price),
     createdAt: tx.createdAt,
   }));
+}
+
+// Admin: Reset market state (for debugging)
+export async function resetMarketState(): Promise<{ success: boolean }> {
+  const now = Date.now();
+  const freshState: MarketState = {
+    price: DC_INITIAL_PRICE,
+    phase: 'accumulation',
+    phaseStartTime: now,
+    phaseDuration: randomInRange(PHASE_BASE_DURATION.min, PHASE_BASE_DURATION.max) * 1000,
+    momentum: 0,
+    activeEvent: 'none',
+    eventStartTime: 0,
+    eventDuration: 0,
+    eventDirection: 0,
+    nextEventIn: randomInRange(EVENT_CHECK_INTERVAL.min, EVENT_CHECK_INTERVAL.max) * 1000,
+    allTimeHigh: DC_INITIAL_PRICE,
+    allTimeLow: DC_INITIAL_PRICE,
+    lastUpdate: now,
+  };
+  
+  await prisma.$executeRaw`
+    UPDATE "GameConfig"
+    SET value = ${JSON.stringify(freshState)}::jsonb, "updatedAt" = NOW()
+    WHERE key = 'dahkacoin_market'
+  `;
+  
+  return { success: true };
 }

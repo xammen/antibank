@@ -453,7 +453,7 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
           <div className="h-1 bg-[rgba(255,255,255,0.1)] overflow-hidden">
             <div 
               className="h-full bg-purple-500 transition-all duration-1000"
-              style={{ width: `${Math.max(0, (1 - nextEventIn / 45)) * 100}%` }}
+              style={{ width: `${Math.max(0, (1 - nextEventIn / 90)) * 100}%` }}
             />
           </div>
         </div>
