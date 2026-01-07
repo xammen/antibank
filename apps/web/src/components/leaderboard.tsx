@@ -27,7 +27,7 @@ export function Leaderboard() {
     };
 
     fetchLeaderboard();
-    const interval = setInterval(fetchLeaderboard, 10000); // refresh every 10s
+    const interval = setInterval(fetchLeaderboard, 5000); // refresh every 5s
     return () => clearInterval(interval);
   }, []);
 

@@ -1,12 +1,25 @@
 // Bonus multiplicateur par durée de session continue
+// Jusqu'à 8h: multiplicateur croissant (max x3.5 à 8h)
+// Après 8h: on reste à x3.5 mais +0.05 par heure supplémentaire (léger)
+const SESSION_CAP_MINUTES = 480; // 8h
+const MAX_MULTIPLIER = 3.5;      // x3.5 à 8h
+const OVERTIME_BONUS = 0.05;     // +0.05 par heure après 8h
+
 export function getSessionMultiplier(sessionMinutes: number): number {
   if (sessionMinutes < 30) return 1.0;
   if (sessionMinutes < 60) return 1.25;   // 30 min
   if (sessionMinutes < 120) return 1.5;   // 1h
   if (sessionMinutes < 180) return 2.0;   // 2h
-  // 3h+ : x2.0 + 0.25 par heure supplémentaire
-  const extraHours = Math.floor((sessionMinutes - 180) / 60);
-  return 2.0 + (extraHours + 1) * 0.25;
+  
+  if (sessionMinutes < SESSION_CAP_MINUTES) {
+    // 3h-8h : x2.0 + 0.25 par heure supplémentaire
+    const extraHours = Math.floor((sessionMinutes - 180) / 60);
+    return 2.0 + (extraHours + 1) * 0.25;
+  }
+  
+  // Après 8h: x3.5 + petit bonus par heure
+  const overtimeHours = Math.floor((sessionMinutes - SESSION_CAP_MINUTES) / 60);
+  return MAX_MULTIPLIER + overtimeHours * OVERTIME_BONUS;
 }
 
 // Bonus journalier en € (temps cumulé)
