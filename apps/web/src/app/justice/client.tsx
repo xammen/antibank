@@ -49,6 +49,7 @@ export function JusticeClient({ userId }: JusticeClientProps) {
   const [richestInfo, setRichestInfo] = useState<{ name: string; balance: number; median: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [votingOn, setVotingOn] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // Warn form
   const [showWarnForm, setShowWarnForm] = useState(false);
@@ -100,9 +101,11 @@ export function JusticeClient({ userId }: JusticeClientProps) {
   const handleCreateWarn = async () => {
     if (!selectedTarget || isCreatingWarn) return;
     setIsCreatingWarn(true);
+    setError(null);
 
     const amount = parseFloat(warnAmount);
     if (isNaN(amount) || amount < 0.5) {
+      setError("montant minimum: 0.5€");
       setIsCreatingWarn(false);
       return;
     }
@@ -115,6 +118,9 @@ export function JusticeClient({ userId }: JusticeClientProps) {
       setWarnReason("");
       setWarnAmount("1");
       loadData();
+    } else {
+      setError(result.error || "erreur inconnue");
+      setTimeout(() => setError(null), 4000);
     }
 
     setIsCreatingWarn(false);
@@ -131,7 +137,12 @@ export function JusticeClient({ userId }: JusticeClientProps) {
   const handleStartRevolution = async () => {
     if (votingOn) return;
     setVotingOn("revolution");
-    await startRevolution();
+    setError(null);
+    const result = await startRevolution();
+    if (!result.success) {
+      setError(result.error || "erreur inconnue");
+      setTimeout(() => setError(null), 4000);
+    }
     await loadData();
     setVotingOn(null);
   };
@@ -172,6 +183,15 @@ export function JusticeClient({ userId }: JusticeClientProps) {
         </Link>
         <h1 className="text-[0.85rem] uppercase tracking-widest">justice</h1>
       </header>
+
+      {/* Error toast */}
+      {error && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+          <div className="px-4 py-2 border border-red-500/30 bg-[#1a1a1a] text-red-400 text-sm shadow-lg">
+            {error}
+          </div>
+        </div>
+      )}
 
       {/* Revolution Section */}
       <section className="border border-red-500/30 bg-red-500/5 p-4">
