@@ -14,7 +14,7 @@ interface CrashGameClientProps {
 }
 
 export function CrashGameClient({ userId, userBalance, userName }: CrashGameClientProps) {
-  const { gameState, isConnected, userBet, placeBet, cashOut } = useCrashGame(userId, userName);
+  const { gameState, isConnected, userBet, placeBet, cashOut } = useCrashGame(userId);
 
   if (!gameState) {
     return (
@@ -89,7 +89,7 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
                 )}
                 {gameState.players.map((player) => (
                   <div
-                    key={player.userId}
+                    key={player.odrzerId}
                     className={`flex items-center justify-between text-xs p-2 border border-[var(--line)] ${
                       player.cashedOut 
                         ? "bg-green-500/10 border-green-500/30" 
@@ -99,7 +99,7 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
                     }`}
                   >
                     <span className="truncate max-w-[100px]">
-                      {player.username.toLowerCase()}
+                      {player.odrzerame.toLowerCase()}
                     </span>
                     <div className="flex items-center gap-2">
                       <span className="text-[var(--text-muted)]">{player.bet}€</span>

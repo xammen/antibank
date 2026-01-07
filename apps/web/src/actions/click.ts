@@ -4,7 +4,7 @@ import { prisma } from "@antibank/db";
 import { calculateClickBonus } from "@/lib/upgrades";
 
 const BASE_CLICK_VALUE = 0.01;
-const MAX_CLICKS_PER_DAY = 1000;
+const MAX_CLICKS_PER_DAY = 5000;
 
 // Anti-triche config (relax)
 const MAX_CLICKS_PER_BATCH = 30;        // max clics par batch

@@ -176,8 +176,16 @@ async function minePassive() {
   }
 }
 
-client.once(Events.ClientReady, (c) => {
+client.once(Events.ClientReady, async (c) => {
   console.log(`[antibank] connecte en tant que ${c.user.tag}`);
+  
+  // Cleanup des sessions stale au démarrage
+  const deleted = await prisma.voiceSession.deleteMany({});
+  console.log(`[antibank] ${deleted.count} sessions vocales stale supprimees`);
+  
+  // Sync immédiat des sessions actuelles
+  await updateVoiceSessions();
+  console.log(`[antibank] sessions vocales synchronisees`);
   
   // Lance le mining vocal toutes les 60 secondes
   setInterval(mineVocal, MINING_INTERVAL);

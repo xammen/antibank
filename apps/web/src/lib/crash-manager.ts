@@ -127,6 +127,10 @@ class CrashGameManager {
     return this.currentGame.state === "waiting";
   }
 
+  hasPlayerBet(odrzerId: string): boolean {
+    return this.currentGame.players.has(odrzerId);
+  }
+
   placeBet(odrzerId: string, odrzerame: string, amount: number): boolean {
     if (!this.canBet()) {
       console.log("[CrashManager] Cannot bet, state:", this.currentGame.state);
@@ -148,7 +152,7 @@ class CrashGameManager {
     return true;
   }
 
-  cashOut(odrzerId: string): { success: boolean; multiplier?: number; profit?: number } {
+  cashOut(odrzerId: string): { success: boolean; multiplier?: number; profit?: number; bet?: number } {
     if (this.currentGame.state !== "running") {
       return { success: false };
     }
@@ -168,7 +172,7 @@ class CrashGameManager {
     player.profit = profit;
 
     console.log("[CrashManager] Cashout:", odrzerId, "at", multiplier, "profit:", profit);
-    return { success: true, multiplier, profit };
+    return { success: true, multiplier, profit, bet: player.bet };
   }
 }
 

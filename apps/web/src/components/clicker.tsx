@@ -26,7 +26,7 @@ export function Clicker({ userId, clickValue = 0.01, icon = "cookie" }: ClickerP
   const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [floats, setFloats] = useState<FloatingNumber[]>([]);
-  const [clicksRemaining, setClicksRemaining] = useState<number>(1000);
+  const [clicksRemaining, setClicksRemaining] = useState<number>(5000);
   const { addToBalance, setBalance } = useBalance("0");
   const buttonRef = useRef<HTMLButtonElement>(null);
   const errorTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -40,8 +40,12 @@ export function Clicker({ userId, clickValue = 0.01, icon = "cookie" }: ClickerP
   useEffect(() => {
     fetch("/api/clicks-remaining")
       .then(res => res.json())
-      .then(data => setClicksRemaining(data.remaining))
-      .catch(() => {});
+      .then(data => {
+        if (typeof data.remaining === "number") {
+          setClicksRemaining(data.remaining);
+        }
+      })
+      .catch(console.error);
   }, []);
 
   // Sync pending clicks with server

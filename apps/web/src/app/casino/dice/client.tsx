@@ -88,7 +88,8 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
   // PvP state
   const [players, setPlayers] = useState<Player[]>([]);
   const [challenges, setChallenges] = useState<{ sent: Challenge[]; received: Challenge[] }>({ sent: [], received: [] });
-  const [pvpResult, setPvpResult] = useState<{ won: boolean; tie: boolean; myRoll: number; theirRoll: number; profit: number } | null>(null);
+  const [pvpResult, setPvpResult] = useState<{ won: boolean; tie: boolean; myRoll: number; theirRoll: number; myDice: [number, number]; theirDice: [number, number]; profit: number } | null>(null);
+  const [pvpAnimating, setPvpAnimating] = useState(false);
 
   useEffect(() => {
     if (mode === "pvp") {
@@ -141,25 +142,34 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
   const handleAccept = async (challenge: Challenge) => {
     setIsPlaying(true);
     setPvpResult(null);
-    setShowAnimation(true);
+    setPvpAnimating(true);
 
-    await new Promise((r) => setTimeout(r, 1500));
-
+    // Appeler l'action immédiatement mais garder l'animation
     const res = await acceptDiceChallenge(challenge.id);
-    setShowAnimation(false);
-    setIsPlaying(false);
 
     if (res.success) {
+      // Stocker le résultat avec les dés pour l'animation
       setPvpResult({
         won: res.winnerId === undefined ? false : res.profit! > 0,
         tie: res.winnerId === null,
         myRoll: res.player2Roll!,
         theirRoll: res.player1Roll!,
+        myDice: res.player2Dice!,
+        theirDice: res.player1Dice!,
         profit: res.profit!,
       });
+      
+      // Laisser l'animation jouer pendant 2s
+      await new Promise((r) => setTimeout(r, 2000));
+      setPvpAnimating(false);
+      
       refreshBalance();
       loadPvpData();
+    } else {
+      setPvpAnimating(false);
     }
+    
+    setIsPlaying(false);
   };
 
   const gameStatus = result 
@@ -283,26 +293,116 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
             /* PvP View */
             <div className="w-full max-w-md px-6">
               {pvpResult ? (
-                <div className="flex flex-col items-center gap-6">
-                  <div className="text-6xl">
-                    {pvpResult.won ? "\uD83C\uDFC6" : pvpResult.tie ? "\uD83E\uDD1D" : "\uD83D\uDCA8"}
+                <div className="flex flex-col items-center gap-8">
+                  {/* Dice arena PvP */}
+                  <div className="flex items-center gap-8 lg:gap-16">
+                    {/* My side (player2) */}
+                    <div className="flex flex-col items-center gap-4">
+                      <span className="text-[0.65rem] uppercase tracking-[0.2em] text-[var(--text-muted)]">toi</span>
+                      <div className="flex gap-2 text-6xl lg:text-8xl">
+                        <AnimatedDice 
+                          finalValue={pvpResult.myDice[0]} 
+                          isRolling={pvpAnimating} 
+                          delay={0}
+                        />
+                        <AnimatedDice 
+                          finalValue={pvpResult.myDice[1]} 
+                          isRolling={pvpAnimating} 
+                          delay={100}
+                        />
+                      </div>
+                      {!pvpAnimating && (
+                        <span className="text-4xl font-mono font-bold">{pvpResult.myRoll}</span>
+                      )}
+                      {pvpAnimating && <span className="text-4xl font-mono opacity-20">--</span>}
+                    </div>
+
+                    {/* VS divider */}
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-px h-16 bg-[var(--line)]" />
+                      <span className="text-xs text-[var(--text-muted)] font-light">vs</span>
+                      <div className="w-px h-16 bg-[var(--line)]" />
+                    </div>
+
+                    {/* Their side (player1) */}
+                    <div className="flex flex-col items-center gap-4">
+                      <span className="text-[0.65rem] uppercase tracking-[0.2em] text-[var(--text-muted)]">eux</span>
+                      <div className="flex gap-2 text-6xl lg:text-8xl">
+                        <AnimatedDice 
+                          finalValue={pvpResult.theirDice[0]} 
+                          isRolling={pvpAnimating} 
+                          delay={200}
+                        />
+                        <AnimatedDice 
+                          finalValue={pvpResult.theirDice[1]} 
+                          isRolling={pvpAnimating} 
+                          delay={300}
+                        />
+                      </div>
+                      {!pvpAnimating && (
+                        <span className="text-4xl font-mono font-bold">{pvpResult.theirRoll}</span>
+                      )}
+                      {pvpAnimating && <span className="text-4xl font-mono opacity-20">--</span>}
+                    </div>
                   </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-mono mb-1">
-                      {pvpResult.myRoll} vs {pvpResult.theirRoll}
-                    </p>
-                    <p className={`text-lg font-mono ${
-                      pvpResult.won ? "text-green-400" : pvpResult.tie ? "text-yellow-400" : "text-red-400"
+
+                  {/* Result banner */}
+                  {!pvpAnimating && (
+                    <div className={`px-8 py-3 ${
+                      pvpResult.won 
+                        ? "bg-green-500/10 border border-green-500/30" 
+                        : pvpResult.tie
+                          ? "bg-yellow-500/10 border border-yellow-500/30"
+                          : "bg-red-500/10 border border-red-500/30"
                     }`}>
-                      {pvpResult.profit > 0 ? "+" : ""}{pvpResult.profit.toFixed(2)}e
-                    </p>
+                      <span className={`text-sm font-mono ${
+                        pvpResult.won 
+                          ? "text-green-400" 
+                          : pvpResult.tie
+                            ? "text-yellow-400"
+                            : "text-red-400"
+                      }`}>
+                        {pvpResult.profit > 0 && "+"}
+                        {pvpResult.profit.toFixed(2)}e
+                      </span>
+                    </div>
+                  )}
+
+                  {!pvpAnimating && (
+                    <button 
+                      onClick={() => setPvpResult(null)}
+                      className="text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
+                    >
+                      continuer
+                    </button>
+                  )}
+                </div>
+              ) : pvpAnimating ? (
+                /* Animation en cours sans résultat encore */
+                <div className="flex flex-col items-center gap-8">
+                  <div className="flex items-center gap-8 lg:gap-16">
+                    <div className="flex flex-col items-center gap-4">
+                      <span className="text-[0.65rem] uppercase tracking-[0.2em] text-[var(--text-muted)]">toi</span>
+                      <div className="flex gap-2 text-6xl lg:text-8xl">
+                        <AnimatedDice finalValue={null} isRolling={true} delay={0} />
+                        <AnimatedDice finalValue={null} isRolling={true} delay={100} />
+                      </div>
+                      <span className="text-4xl font-mono opacity-20">--</span>
+                    </div>
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-px h-16 bg-[var(--line)]" />
+                      <span className="text-xs text-[var(--text-muted)] font-light">vs</span>
+                      <div className="w-px h-16 bg-[var(--line)]" />
+                    </div>
+                    <div className="flex flex-col items-center gap-4">
+                      <span className="text-[0.65rem] uppercase tracking-[0.2em] text-[var(--text-muted)]">eux</span>
+                      <div className="flex gap-2 text-6xl lg:text-8xl">
+                        <AnimatedDice finalValue={null} isRolling={true} delay={200} />
+                        <AnimatedDice finalValue={null} isRolling={true} delay={300} />
+                      </div>
+                      <span className="text-4xl font-mono opacity-20">--</span>
+                    </div>
                   </div>
-                  <button 
-                    onClick={() => setPvpResult(null)}
-                    className="text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
-                  >
-                    continuer
-                  </button>
                 </div>
               ) : challenges.received.length > 0 || challenges.sent.length > 0 ? (
                 <div className="space-y-6">

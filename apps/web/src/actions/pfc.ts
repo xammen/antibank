@@ -364,10 +364,10 @@ export async function playPFCVsBot(
 export async function getPendingPFCChallenges() {
   const session = await auth();
   if (!session?.user?.id) {
-    return { sent: [], received: [], playing: [] };
+    return { sent: [], received: [], playing: [], waitingResult: [] };
   }
 
-  const [sent, received, playing] = await Promise.all([
+  const [sent, received, playing, waitingResult] = await Promise.all([
     prisma.pFCGame.findMany({
       where: {
         status: "pending",
@@ -378,7 +378,7 @@ export async function getPendingPFCChallenges() {
         player2: { select: { id: true, discordUsername: true } },
       },
       orderBy: { createdAt: "desc" },
-      take: 50, // Pagination: limite à 50 résultats
+      take: 50,
     }),
     prisma.pFCGame.findMany({
       where: {
@@ -409,7 +409,124 @@ export async function getPendingPFCChallenges() {
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
+    // Games where I already chose but waiting for opponent
+    prisma.pFCGame.findMany({
+      where: {
+        status: "playing",
+        OR: [
+          { player1Id: session.user.id, player1Choice: { not: null }, player2Choice: null },
+          { player2Id: session.user.id, player2Choice: { not: null }, player1Choice: null },
+        ],
+      },
+      include: {
+        player1: { select: { id: true, discordUsername: true } },
+        player2: { select: { id: true, discordUsername: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
   ]);
 
-  return { sent, received, playing };
+  return { sent, received, playing, waitingResult };
+}
+
+/**
+ * Récupère les parties PFC récemment terminées (pour notification)
+ */
+export async function getRecentPFCResults() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return [];
+  }
+
+  // Parties terminées dans les 30 dernières secondes
+  const recentGames = await prisma.pFCGame.findMany({
+    where: {
+      status: "completed",
+      completedAt: { gte: new Date(Date.now() - 30000) },
+      OR: [
+        { player1Id: session.user.id },
+        { player2Id: session.user.id },
+      ],
+    },
+    include: {
+      player1: { select: { id: true, discordUsername: true } },
+      player2: { select: { id: true, discordUsername: true } },
+    },
+    orderBy: { completedAt: "desc" },
+    take: 5,
+  });
+
+  return recentGames.map(game => {
+    const isPlayer1 = game.player1Id === session.user.id;
+    const myChoice = isPlayer1 ? game.player1Choice : game.player2Choice;
+    const theirChoice = isPlayer1 ? game.player2Choice : game.player1Choice;
+    const opponent = isPlayer1 ? game.player2 : game.player1;
+    const amount = Number(game.amount);
+    
+    const won = game.winnerId === session.user.id;
+    const tie = game.winnerId === null;
+    const profit = won ? amount * 0.9 : tie ? -amount * 0.05 : -amount;
+
+    return {
+      id: game.id,
+      myChoice,
+      theirChoice,
+      opponentName: opponent?.discordUsername || "?",
+      won,
+      tie,
+      profit,
+      completedAt: game.completedAt,
+    };
+  });
+}
+
+/**
+ * Récupère l'historique des parties PFC
+ */
+export async function getPFCHistory(limit = 20) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return [];
+  }
+
+  const games = await prisma.pFCGame.findMany({
+    where: {
+      status: "completed",
+      OR: [
+        { player1Id: session.user.id },
+        { player2Id: session.user.id },
+      ],
+    },
+    include: {
+      player1: { select: { id: true, discordUsername: true } },
+      player2: { select: { id: true, discordUsername: true } },
+    },
+    orderBy: { completedAt: "desc" },
+    take: limit,
+  });
+
+  return games.map(game => {
+    const isPlayer1 = game.player1Id === session.user.id;
+    const myChoice = isPlayer1 ? game.player1Choice : game.player2Choice;
+    const theirChoice = isPlayer1 ? game.player2Choice : game.player1Choice;
+    const opponent = isPlayer1 ? game.player2 : game.player1;
+    const amount = Number(game.amount);
+    
+    const won = game.winnerId === session.user.id;
+    const tie = game.winnerId === null;
+    const profit = won ? amount * 0.9 : tie ? -amount * 0.05 : -amount;
+
+    return {
+      id: game.id,
+      myChoice,
+      theirChoice,
+      opponentName: opponent?.discordUsername || "bot",
+      won,
+      tie,
+      profit,
+      amount,
+      completedAt: game.completedAt,
+    };
+  });
 }

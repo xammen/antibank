@@ -16,6 +16,8 @@ export interface AcceptChallengeResult {
   error?: string;
   player1Roll?: number;
   player2Roll?: number;
+  player1Dice?: [number, number];
+  player2Dice?: [number, number];
   winnerId?: string | null;
   profit?: number;
 }
@@ -117,9 +119,17 @@ export async function acceptDiceChallenge(
     return { success: false, error: "défi expiré" };
   }
 
-  // Lancer les dés
-  const player1Roll = rollDice();
-  const player2Roll = rollDice();
+  // Lancer les dés avec valeurs individuelles
+  const p1Die1 = Math.floor(Math.random() * 6) + 1;
+  const p1Die2 = Math.floor(Math.random() * 6) + 1;
+  const player1Roll = p1Die1 + p1Die2;
+  const player1Dice: [number, number] = [p1Die1, p1Die2];
+
+  const p2Die1 = Math.floor(Math.random() * 6) + 1;
+  const p2Die2 = Math.floor(Math.random() * 6) + 1;
+  const player2Roll = p2Die1 + p2Die2;
+  const player2Dice: [number, number] = [p2Die1, p2Die2];
+
   const result = determineWinner(player1Roll, player2Roll);
   
   const amount = Number(game.amount);
@@ -197,6 +207,8 @@ export async function acceptDiceChallenge(
       success: true,
       player1Roll,
       player2Roll,
+      player1Dice,
+      player2Dice,
       winnerId,
       profit: myProfit,
     };

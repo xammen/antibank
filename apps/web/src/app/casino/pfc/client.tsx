@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { playPFCVsBot, type PlayPFCVsBotResult, getPendingPFCChallenges, createPFCChallenge, acceptPFCChallenge, makePFCChoice } from "@/actions/pfc";
+import { playPFCVsBot, type PlayPFCVsBotResult, getPendingPFCChallenges, createPFCChallenge, acceptPFCChallenge, makePFCChoice, getRecentPFCResults, getPFCHistory } from "@/actions/pfc";
 import { getAvailablePlayers } from "@/actions/dice";
 import { type PFCChoice } from "@/lib/pfc";
 import { Balance } from "@/components/balance";
@@ -39,6 +39,28 @@ interface PlayingGame extends Challenge {
   player2Choice?: string | null;
 }
 
+interface HistoryGame {
+  id: string;
+  myChoice: string | null;
+  theirChoice: string | null;
+  opponentName: string;
+  won: boolean;
+  tie: boolean;
+  profit: number;
+  amount: number;
+  completedAt: Date | null;
+}
+
+interface RecentResult {
+  id: string;
+  myChoice: string | null;
+  theirChoice: string | null;
+  opponentName: string;
+  won: boolean;
+  tie: boolean;
+  profit: number;
+}
+
 function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
   const [mode, setMode] = useState<GameMode>("bot");
   const [betAmount, setBetAmount] = useState("1");
@@ -51,8 +73,10 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
 
   // PvP state
   const [players, setPlayers] = useState<Player[]>([]);
-  const [challenges, setChallenges] = useState<{ sent: Challenge[]; received: Challenge[]; playing: PlayingGame[] }>({ sent: [], received: [], playing: [] });
+  const [challenges, setChallenges] = useState<{ sent: Challenge[]; received: Challenge[]; playing: PlayingGame[]; waitingResult: PlayingGame[] }>({ sent: [], received: [], playing: [], waitingResult: [] });
   const [pvpResult, setPvpResult] = useState<{ won: boolean; tie: boolean; myChoice: string; theirChoice: string; profit: number } | null>(null);
+  const [history, setHistory] = useState<HistoryGame[]>([]);
+  const [seenResultIds, setSeenResultIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (mode === "pvp") {
@@ -61,6 +85,46 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
       return () => clearInterval(interval);
     }
   }, [mode]);
+
+  // Load history on mount
+  useEffect(() => {
+    const loadHistory = async () => {
+      const h = await getPFCHistory(15);
+      setHistory(h as HistoryGame[]);
+    };
+    loadHistory();
+  }, []);
+
+  // Poll for results when waiting
+  useEffect(() => {
+    if (challenges.waitingResult.length === 0) return;
+
+    const checkResults = async () => {
+      const results = await getRecentPFCResults();
+      for (const result of results as RecentResult[]) {
+        if (!seenResultIds.has(result.id)) {
+          // New result! Show it
+          setPvpResult({
+            won: result.won,
+            tie: result.tie,
+            myChoice: result.myChoice || "",
+            theirChoice: result.theirChoice || "",
+            profit: result.profit,
+          });
+          setSeenResultIds(prev => new Set([...prev, result.id]));
+          refreshBalance();
+          loadPvpData();
+          // Reload history
+          const h = await getPFCHistory(15);
+          setHistory(h as HistoryGame[]);
+          break;
+        }
+      }
+    };
+
+    const interval = setInterval(checkResults, 2000);
+    return () => clearInterval(interval);
+  }, [challenges.waitingResult, seenResultIds, refreshBalance]);
 
   // Bot thinking animation
   useEffect(() => {
@@ -81,7 +145,7 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
       getPendingPFCChallenges(),
     ]);
     setPlayers(p);
-    setChallenges(c as { sent: Challenge[]; received: Challenge[]; playing: PlayingGame[] });
+    setChallenges(c as { sent: Challenge[]; received: Challenge[]; playing: PlayingGame[]; waitingResult: PlayingGame[] });
   };
 
   const getEmoji = (choice: PFCChoice | string) => {
@@ -107,6 +171,9 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
 
     if (res.success) {
       refreshBalance();
+      // Reload history
+      const h = await getPFCHistory(15);
+      setHistory(h as HistoryGame[]);
     }
   };
 
@@ -148,6 +215,9 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
         profit: res.profit!,
       });
       refreshBalance();
+      // Reload history
+      const h = await getPFCHistory(15);
+      setHistory(h as HistoryGame[]);
     }
     loadPvpData();
   };
@@ -340,6 +410,24 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
 
               {challenges.playing.length === 0 && !pvpResult && (
                 <>
+                  {/* Waiting for opponent to choose */}
+                  {challenges.waitingResult.length > 0 && (
+                    <div className="mb-6">
+                      <p className="text-[0.65rem] uppercase tracking-[0.2em] text-yellow-400 mb-3">
+                        en attente de l'adversaire
+                      </p>
+                      {challenges.waitingResult.map((g) => (
+                        <div key={g.id} className="flex items-center justify-between p-4 border border-yellow-500/30 bg-yellow-500/10 mb-2">
+                          <div>
+                            <p className="text-sm">{g.player1?.discordUsername?.toLowerCase() || g.player2?.discordUsername?.toLowerCase()}</p>
+                            <p className="text-xs text-[var(--text-muted)] font-mono">{String(g.amount)}e</p>
+                          </div>
+                          <span className="text-xs text-yellow-400 animate-pulse">...</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {challenges.received.length > 0 || challenges.sent.length > 0 ? (
                     <div className="space-y-6">
                       {challenges.received.length > 0 && (
@@ -381,7 +469,7 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
                         </div>
                       )}
                     </div>
-                  ) : (
+                  ) : challenges.waitingResult.length === 0 && (
                     <div className="text-center text-[var(--text-muted)]">
                       <div className="text-4xl mb-4 opacity-20 flex justify-center gap-2">
                         <span>{"\uD83E\uDEA8"}</span>
@@ -487,6 +575,41 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
               </div>
             )}
           </div>
+
+          {/* History */}
+          {history.length > 0 && (
+            <div className="border-t border-[var(--line)] max-h-48 overflow-y-auto">
+              <div className="p-3 border-b border-[var(--line)] sticky top-0 bg-[var(--bg)]">
+                <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)]">historique</p>
+              </div>
+              <div className="divide-y divide-[var(--line)]">
+                {history.map((game) => (
+                  <div 
+                    key={game.id} 
+                    className={`px-3 py-2 flex items-center justify-between ${
+                      game.won ? "bg-green-500/5" : game.tie ? "bg-yellow-500/5" : "bg-red-500/5"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">{getEmoji(game.myChoice || "")}</span>
+                      <span className="text-[var(--text-muted)]">vs</span>
+                      <span className="text-lg">{getEmoji(game.theirChoice || "")}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-xs font-mono ${
+                        game.won ? "text-green-400" : game.tie ? "text-yellow-400" : "text-red-400"
+                      }`}>
+                        {game.profit > 0 ? "+" : ""}{game.profit.toFixed(2)}e
+                      </p>
+                      <p className="text-[0.55rem] text-[var(--text-muted)]">
+                        {game.opponentName?.toLowerCase()}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Rules */}
           <div className="p-4 border-t border-[var(--line)] text-[0.6rem] text-[var(--text-muted)] space-y-0.5">

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@antibank/db";
 
-const MAX_CLICKS_PER_DAY = 1000;
+const MAX_CLICKS_PER_DAY = 5000;
 
 export async function GET() {
   const session = await auth();

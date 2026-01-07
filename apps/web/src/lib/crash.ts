@@ -56,16 +56,14 @@ export function timeToMultiplier(targetMultiplier: number): number {
  */
 export function validateBet(amount: number, balance: number): { valid: boolean; error?: string } {
   const MIN_BET = 0.5;
-  const MAX_BET_PERCENT = 0.1; // 10% du solde
-  const MAX_BET_ABSOLUTE = 50;
+  const MAX_BET = 10000;
 
   if (amount < MIN_BET) {
     return { valid: false, error: `mise minimum: ${MIN_BET}€` };
   }
 
-  const maxBet = Math.min(balance * MAX_BET_PERCENT, MAX_BET_ABSOLUTE);
-  if (amount > maxBet) {
-    return { valid: false, error: `mise maximum: ${maxBet.toFixed(2)}€` };
+  if (amount > MAX_BET) {
+    return { valid: false, error: `mise maximum: ${MAX_BET}€` };
   }
 
   if (amount > balance) {

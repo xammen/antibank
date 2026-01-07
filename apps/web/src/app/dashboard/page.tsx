@@ -5,6 +5,7 @@ import { Balance } from "@/components/balance";
 import { SignOutButton } from "@/components/sign-out-button";
 import { VoiceStatus } from "@/components/voice-status";
 import { IconPicker } from "@/components/icon-picker";
+import { Leaderboard } from "@/components/leaderboard";
 import { prisma } from "@antibank/db";
 import { calculateClickBonus, calculatePassiveBonus, calculateVocalBonus } from "@/lib/upgrades";
 import Link from "next/link";
@@ -95,6 +96,9 @@ export default async function Dashboard() {
             <span className="text-sm uppercase tracking-widest">casino</span>
           </Link>
         </div>
+
+        {/* Leaderboard */}
+        <Leaderboard />
       </div>
     </main>
   );
