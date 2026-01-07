@@ -126,6 +126,7 @@ model CrashBet {
   amount      Decimal  @db.Decimal(10, 2) // Mise
   cashOutAt   Decimal? @db.Decimal(10, 4) // Multiplicateur de cashout (null si pas cashout)
   profit      Decimal? @db.Decimal(10, 2) // Gain net (positif ou négatif)
+  wantsSkip   Boolean  @default(false) // Vote pour skip le countdown
   
   createdAt   DateTime @default(now())
 

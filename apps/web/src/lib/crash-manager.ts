@@ -172,11 +172,11 @@ class CrashGameManager {
         const correctGame = await prisma.crashGame.findUnique({
           where: { id: firstId },
           include: {
-            bets: {
-              include: {
-                user: { select: { id: true, discordUsername: true } }
-              }
-            }
+        bets: {
+          include: {
+            user: { select: { id: true, discordUsername: true } }
+          }
+        }
           }
         });
         if (correctGame) return correctGame;
@@ -273,10 +273,19 @@ class CrashGameManager {
       profit: bet.profit ? Number(bet.profit) : undefined,
     }));
 
-    // Skip votes: récupérer depuis les bets (on utilise un champ existant ou on compte)
-    // Pour simplifier, on va stocker ça en DB avec un nouveau champ sur crashBet
-    // En attendant, pas de skip votes
-    const skipVotes = 0;
+    // Skip votes: compte les joueurs qui ont voté pour skip
+    let skipVotes = 0;
+    if (state === "waiting" && players.length > 0) {
+      try {
+        const result = await prisma.$queryRaw<[{count: bigint}]>`
+          SELECT COUNT(*) as count FROM "CrashBet" 
+          WHERE "crashGameId" = ${game.id} AND "wantsSkip" = true
+        `;
+        skipVotes = Number(result[0]?.count || 0);
+      } catch {
+        skipVotes = 0;
+      }
+    }
     const skipVotesNeeded = Math.max(MIN_PLAYERS_FOR_SKIP, Math.ceil(players.length * 0.5));
     
     return {
@@ -377,9 +386,42 @@ class CrashGameManager {
   }
 
   async voteSkip(userId: string): Promise<{ success: boolean; skipped?: boolean }> {
-    // Simplified: skip voting disabled for now to fix core issues first
-    // TODO: Implement with DB-backed vote tracking
-    return { success: false };
+    const game = await this.getOrCreateCurrentGame();
+    
+    // Can only vote skip during waiting phase
+    if (game.status !== "waiting") {
+      return { success: false };
+    }
+
+    // User must have placed a bet to vote
+    const userBet = game.bets.find(b => b.userId === userId);
+    if (!userBet) {
+      return { success: false };
+    }
+
+    // Toggle skip vote using raw query (Prisma types not regenerated locally)
+    try {
+      await prisma.$executeRaw`UPDATE "CrashBet" SET "wantsSkip" = true WHERE id = ${userBet.id}`;
+
+      // Check if enough votes to skip
+      const skipVotesResult = await prisma.$queryRaw<[{count: bigint}]>`
+        SELECT COUNT(*) as count FROM "CrashBet" 
+        WHERE "crashGameId" = ${game.id} AND "wantsSkip" = true
+      `;
+      const skipVotes = Number(skipVotesResult[0]?.count || 0);
+      const totalPlayers = game.bets.length;
+      const skipVotesNeeded = Math.max(MIN_PLAYERS_FOR_SKIP, Math.ceil(totalPlayers * 0.5));
+
+      // If enough votes, start the game immediately
+      if (skipVotes >= skipVotesNeeded && totalPlayers >= MIN_PLAYERS_FOR_SKIP) {
+        const started = await this.tryStartGame(game.id);
+        return { success: true, skipped: !!started };
+      }
+
+      return { success: true, skipped: false };
+    } catch {
+      return { success: false };
+    }
   }
 
   async canBet(): Promise<boolean> {
