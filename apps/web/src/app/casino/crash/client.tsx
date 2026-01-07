@@ -193,7 +193,7 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
                   {gameState.history.map((h) => (
                     <div 
                       key={h.id} 
-                      className={`px-3 py-1.5 flex items-center justify-between ${
+                      className={`px-3 py-1.5 ${
                         h.crashPoint >= 5 ? "bg-green-500/5" : 
                         h.crashPoint >= 2 ? "bg-yellow-500/5" : 
                         "bg-red-500/5"
@@ -206,9 +206,6 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
                       }`}>
                         x{h.crashPoint.toFixed(2)}
                       </span>
-                      {h.crashPoint >= 5 && (
-                        <span className="text-[0.55rem] text-green-400/60 uppercase">big</span>
-                      )}
                     </div>
                   ))}
                 </div>
