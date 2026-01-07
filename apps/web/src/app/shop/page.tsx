@@ -25,6 +25,22 @@ export default async function ShopPage() {
     {} as Record<string, number>
   );
 
+  // Récupérer l'inventaire du user
+  const userInventory = await prisma.inventoryItem.findMany({
+    where: {
+      userId: session.user.id,
+      charges: { not: 0 },
+      OR: [
+        { expiresAt: null },
+        { expiresAt: { gt: new Date() } },
+      ],
+    },
+    select: {
+      itemId: true,
+      charges: true,
+    },
+  });
+
   return (
     <main className="min-h-screen flex flex-col items-center pt-[10vh] px-6 pb-20">
       <div className="max-w-[600px] w-full flex flex-col gap-8 animate-fade-in">
@@ -49,6 +65,7 @@ export default async function ShopPage() {
         {/* Shop Grid */}
         <ShopGrid
           userUpgrades={upgradeMap}
+          userInventory={userInventory}
           userBalance={parseFloat(session.user.balance) || 0}
         />
       </div>
