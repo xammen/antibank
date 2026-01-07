@@ -9,7 +9,11 @@ export async function GET() {
     const manager = getCrashManager();
     const state = await manager.getPublicState();
     
-    return NextResponse.json(state);
+    // Ajouter serverTime pour synchronisation client
+    return NextResponse.json({
+      ...state,
+      serverTime: Date.now(),
+    });
   } catch (error) {
     console.error("Crash API error:", error);
     return NextResponse.json(

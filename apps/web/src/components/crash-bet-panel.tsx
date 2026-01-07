@@ -39,7 +39,6 @@ export function CrashBetPanel({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [betHistory, setBetHistory] = useState<BetHistoryEntry[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
   const { setBalance } = useBalance(userBalance);
   const autoCashoutTriggered = useRef(false);
 
@@ -291,43 +290,43 @@ export function CrashBetPanel({
         </div>
       )}
 
-      {/* User bet history toggle */}
-      <div className="border-t border-[var(--line)] pt-3 mt-2">
-        <button
-          onClick={() => setShowHistory(!showHistory)}
-          className="w-full text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)] 
-            hover:text-[var(--text)] transition-colors flex items-center justify-between"
-        >
-          <span>historique</span>
-          <span>{showHistory ? "-" : "+"}</span>
-        </button>
-        
-        {showHistory && (
-          <div className="mt-3 flex flex-col gap-1 max-h-32 overflow-auto">
-            {betHistory.length === 0 && (
-              <p className="text-xs text-[var(--text-muted)] text-center py-2">-</p>
-            )}
-            {betHistory.map((entry, i) => (
-              <div
-                key={i}
-                className="flex items-center justify-between text-xs py-1.5 px-2 border border-[var(--line)]"
-              >
-                <div className="flex items-center gap-2 text-[var(--text-muted)]">
-                  <span>{entry.bet}</span>
-                  {entry.cashOutAt ? (
-                    <span>x{entry.cashOutAt.toFixed(2)}</span>
-                  ) : (
-                    <span>x{entry.crashPoint.toFixed(2)}</span>
-                  )}
-                </div>
-                <span className={entry.profit >= 0 ? "text-[var(--text)]" : "text-[var(--text-muted)]"}>
-                  {entry.profit >= 0 ? "+" : ""}{entry.profit.toFixed(2)}
-                </span>
-              </div>
-            ))}
+      {/* User bet history */}
+      {betHistory.length > 0 && (
+        <div className="border-t border-[var(--line)] mt-2">
+          <div className="py-2 border-b border-[var(--line)]">
+            <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)]">historique</p>
           </div>
-        )}
-      </div>
+          <div className="divide-y divide-[var(--line)] max-h-40 overflow-y-auto">
+            {betHistory.map((entry, i) => {
+              const won = entry.profit > 0;
+              const lost = entry.profit < 0;
+              return (
+                <div
+                  key={i}
+                  className={`px-3 py-2 flex items-center justify-between ${
+                    won ? "bg-green-500/5" : lost ? "bg-red-500/5" : "bg-yellow-500/5"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-[var(--text-muted)] font-mono">{entry.bet}e</span>
+                    <span className="text-[var(--text-muted)]">→</span>
+                    <span className={`text-xs font-mono ${
+                      entry.cashOutAt ? "text-green-400" : "text-red-400"
+                    }`}>
+                      x{(entry.cashOutAt || entry.crashPoint).toFixed(2)}
+                    </span>
+                  </div>
+                  <span className={`text-xs font-mono ${
+                    won ? "text-green-400" : lost ? "text-red-400" : "text-yellow-400"
+                  }`}>
+                    {entry.profit > 0 ? "+" : ""}{entry.profit.toFixed(2)}e
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

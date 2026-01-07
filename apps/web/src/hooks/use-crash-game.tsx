@@ -26,6 +26,7 @@ interface CrashGameState {
   currentMultiplier: number;
   countdown: number;
   startTime?: number | null;
+  serverTime?: number;
   players: CrashPlayer[];
   skipVotes: number;
   skipVotesNeeded: number;
@@ -51,6 +52,8 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
   
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const animationRef = useRef<number | null>(null);
+  // Offset entre l'heure du client et du serveur (client - server)
+  const serverTimeOffsetRef = useRef<number>(0);
 
   // Animation du multiplicateur local (60fps)
   useEffect(() => {
@@ -81,7 +84,8 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
     }
 
     const animate = () => {
-      const now = Date.now();
+      // Utiliser l'offset serveur pour synchroniser tous les clients
+      const now = Date.now() - serverTimeOffsetRef.current;
       const elapsed = now - startTime;
       const mult = calculateMultiplier(Math.max(0, elapsed));
       setLocalMultiplier(mult);
@@ -100,6 +104,7 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
 
   const fetchState = useCallback(async () => {
     try {
+      const fetchStartTime = Date.now();
       const res = await fetch("/api/crash", { cache: "no-store" });
       if (!res.ok) {
         setIsConnected(false);
@@ -107,6 +112,15 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
       }
       
       const data: CrashGameState = await res.json();
+      
+      // Calculer l'offset serveur (en tenant compte de la latence réseau)
+      if (data.serverTime) {
+        const fetchEndTime = Date.now();
+        const latency = (fetchEndTime - fetchStartTime) / 2; // Estimation latence one-way
+        const estimatedServerNow = data.serverTime + latency;
+        serverTimeOffsetRef.current = fetchEndTime - estimatedServerNow;
+      }
+      
       setGameState(data);
       setIsConnected(true);
     } catch {
