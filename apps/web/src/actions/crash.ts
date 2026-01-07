@@ -3,22 +3,39 @@
 import { auth } from "@/lib/auth";
 import { prisma, Prisma } from "@antibank/db";
 import { getCrashManager } from "@/lib/crash-manager";
-import { validateBet, calculateMultiplier, timeToMultiplier, CRASH_CONFIG } from "@/lib/crash";
-import { revalidatePath } from "next/cache";
+import { validateBet } from "@/lib/crash";
+import { trackHeistCrashGame, trackHeistCasinoWin } from "@/actions/heist";
 
 export async function placeCrashBet(amount: number): Promise<{ success: boolean; error?: string }> {
-  const session = await auth();
+  // Paralléliser auth + user fetch
+  const [session, manager] = await Promise.all([
+    auth(),
+    Promise.resolve(getCrashManager()),
+  ]);
+  
   if (!session?.user?.id) {
     return { success: false, error: "non connecté" };
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { id: true, balance: true, discordUsername: true },
-  });
+  // Fetch user + check game state en parallèle
+  const [user, gameCheck] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true, balance: true, discordUsername: true },
+    }),
+    manager.canBetAndNotAlreadyBet(session.user.id), // Nouvelle méthode combinée
+  ]);
 
   if (!user) {
     return { success: false, error: "utilisateur introuvable" };
+  }
+
+  if (!gameCheck.canBet) {
+    return { success: false, error: "paris fermés" };
+  }
+
+  if (gameCheck.alreadyBet) {
+    return { success: false, error: "déjà parié" };
   }
 
   const balance = Number(user.balance);
@@ -27,39 +44,32 @@ export async function placeCrashBet(amount: number): Promise<{ success: boolean;
     return { success: false, error: validation.error };
   }
 
-  const manager = getCrashManager();
-  
-  // Check if bets are open
-  const canBet = await manager.canBet();
-  if (!canBet) {
-    return { success: false, error: "paris fermés" };
-  }
-
-  // Check if already bet
-  const hasBet = await manager.hasPlayerBet(session.user.id);
-  if (hasBet) {
-    return { success: false, error: "déjà parié" };
-  }
-
-  // Deduct from balance first
-  await prisma.user.update({
-    where: { id: session.user.id },
-    data: { balance: { decrement: new Prisma.Decimal(amount) } },
-  });
-
-  // Place the bet
-  const result = await manager.placeBet(session.user.id, user.discordUsername, amount);
-  
-  if (!result.success) {
-    // Rollback
-    await prisma.user.update({
-      where: { id: session.user.id },
-      data: { balance: { increment: new Prisma.Decimal(amount) } },
+  // Déduire + placer le bet en une transaction
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: session.user.id },
+        data: { balance: { decrement: new Prisma.Decimal(amount) } },
+      });
+      
+      await tx.crashBet.create({
+        data: {
+          crashGameId: gameCheck.gameId!,
+          userId: session.user.id,
+          amount: new Prisma.Decimal(amount),
+        }
+      });
     });
-  }
 
-  revalidatePath("/casino/crash");
-  return result;
+    // Track heist en background (fire and forget)
+    if (amount >= 1) {
+      trackHeistCrashGame(session.user.id).catch(() => {});
+    }
+
+    return { success: true };
+  } catch {
+    return { success: false, error: "erreur" };
+  }
 }
 
 export async function cashOutCrash(clientMultiplier?: number): Promise<{ 
@@ -69,36 +79,40 @@ export async function cashOutCrash(clientMultiplier?: number): Promise<{
   profit?: number;
   newBalance?: number;
 }> {
-  const session = await auth();
+  // Auth + manager en parallèle
+  const [session, manager] = await Promise.all([
+    auth(),
+    Promise.resolve(getCrashManager()),
+  ]);
+  
   if (!session?.user?.id) {
     return { success: false, error: "non connecté" };
   }
 
-  const manager = getCrashManager();
-  
-  // Pass client multiplier for more accurate timing
+  // CashOut via manager (déjà optimisé)
   const result = await manager.cashOut(session.user.id, clientMultiplier);
   
   if (result.success && result.profit !== undefined && result.bet !== undefined) {
-    // Add winnings to balance
     const winnings = result.bet + result.profit;
     
-    const updatedUser = await prisma.user.update({
-      where: { id: session.user.id },
-      data: { balance: { increment: new Prisma.Decimal(winnings) } },
-    });
+    // Update balance + log transaction en parallèle
+    const [updatedUser] = await Promise.all([
+      prisma.user.update({
+        where: { id: session.user.id },
+        data: { balance: { increment: new Prisma.Decimal(winnings) } },
+      }),
+      prisma.transaction.create({
+        data: {
+          userId: session.user.id,
+          type: "casino_crash",
+          amount: new Prisma.Decimal(result.profit),
+          description: `Crash x${result.multiplier?.toFixed(2)}`,
+        },
+      }),
+      // Track heist en background
+      result.profit > 0 ? trackHeistCasinoWin(session.user.id).catch(() => {}) : Promise.resolve(),
+    ]);
 
-    // Log transaction
-    await prisma.transaction.create({
-      data: {
-        userId: session.user.id,
-        type: "casino_crash",
-        amount: new Prisma.Decimal(result.profit),
-        description: `Crash x${result.multiplier?.toFixed(2)}`,
-      },
-    });
-
-    revalidatePath("/casino/crash");
     return { ...result, newBalance: Number(updatedUser.balance) };
   }
 

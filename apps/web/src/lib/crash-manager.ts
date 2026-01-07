@@ -10,7 +10,7 @@ import {
   CRASH_CONFIG,
 } from "./crash";
 import { addToAntibank } from "./antibank-corp";
-import { trackHeistCrashGame, trackHeistCasinoWin, trackHeistCasinoLoss } from "@/actions/heist";
+import { trackHeistCrashGame, trackHeistCasinoLoss } from "@/actions/heist";
 
 interface CrashPlayerPublic {
   odrzerId: string;
@@ -474,6 +474,18 @@ class CrashGameManager {
     return game.bets.some(b => b.userId === userId);
   }
 
+  /**
+   * Méthode combinée pour éviter les appels multiples à getOrCreateCurrentGame
+   */
+  async canBetAndNotAlreadyBet(userId: string): Promise<{ canBet: boolean; alreadyBet: boolean; gameId?: string }> {
+    const game = await this.getOrCreateCurrentGame();
+    return {
+      canBet: game.status === "waiting",
+      alreadyBet: game.bets.some(b => b.userId === userId),
+      gameId: game.id,
+    };
+  }
+
   async placeBet(userId: string, username: string, amount: number): Promise<{ success: boolean; error?: string }> {
     const game = await this.getOrCreateCurrentGame();
     
@@ -507,22 +519,17 @@ class CrashGameManager {
   }
 
   async cashOut(userId: string, clientMultiplier?: number): Promise<{ success: boolean; multiplier?: number; profit?: number; bet?: number }> {
-    // Trouver le jeu en cours
-    const game = await prisma.crashGame.findFirst({
-      where: { status: "running" },
-      orderBy: { createdAt: "desc" },
-    });
-    
-    if (!game) {
-      return { success: false };
-    }
-
-    // Chercher le bet
+    // Une seule query: trouver le bet avec son game
     const bet = await prisma.crashBet.findFirst({
       where: {
-        crashGameId: game.id,
         userId,
         cashOutAt: null,
+        crashGame: { status: "running" },
+      },
+      include: {
+        crashGame: {
+          select: { id: true, crashPoint: true, startedAt: true, createdAt: true }
+        }
       }
     });
     
@@ -530,6 +537,7 @@ class CrashGameManager {
       return { success: false };
     }
 
+    const game = bet.crashGame;
     const crashPoint = Number(game.crashPoint);
 
     // Utiliser le multiplicateur client s'il est fourni et valide
@@ -584,11 +592,6 @@ class CrashGameManager {
 
       if (result.count === 0) {
         return { success: false };
-      }
-
-      // Track casino win pour la quête heist (profit > 0 = win)
-      if (profit > 0) {
-        trackHeistCasinoWin(userId).catch(() => {});
       }
 
       return { success: true, multiplier, profit, bet: betAmount };

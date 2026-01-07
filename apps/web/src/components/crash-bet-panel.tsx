@@ -35,45 +35,73 @@ export function CrashBetPanel({
 }: CrashBetPanelProps) {
   const [betAmount, setBetAmount] = useState("1");
   const [autoCashoutAt, setAutoCashoutAt] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [betHistory, setBetHistory] = useState<BetHistoryEntry[]>([]);
   const { setBalance } = useBalance(userBalance);
   const autoCashoutTriggered = useRef(false);
-
-  // Load bet history on mount and after each game
+  const lastGameStateRef = useRef(gameState);
+  
+  // État optimiste local - override l'état serveur temporairement
+  const [optimisticBet, setOptimisticBet] = useState<{ bet: number } | null>(null);
+  const [optimisticCashout, setOptimisticCashout] = useState<{ multiplier: number; profit: number } | null>(null);
+  
+  // Reset optimistic state quand le serveur confirme ou quand le jeu change
   useEffect(() => {
-    const loadHistory = async () => {
-      const history = await getUserCrashHistory();
-      setBetHistory(history);
-    };
-    loadHistory();
+    if (userBet) {
+      setOptimisticBet(null); // Serveur a confirmé le bet
+    }
+    if (userBet?.cashedOut) {
+      setOptimisticCashout(null); // Serveur a confirmé le cashout
+    }
+  }, [userBet]);
+  
+  // Reset tout à la nouvelle partie
+  useEffect(() => {
+    if (gameState === "waiting" && lastGameStateRef.current === "crashed") {
+      setOptimisticBet(null);
+      setOptimisticCashout(null);
+    }
   }, [gameState]);
+  
+  // Calculer l'état effectif (optimiste ou serveur)
+  const effectiveBet = optimisticBet || userBet;
+  const effectiveCashedOut = optimisticCashout || (userBet?.cashedOut ? { 
+    multiplier: userBet.cashOutMultiplier || 0, 
+    profit: userBet.profit || 0 
+  } : null);
+
+  // Load bet history on mount and when game crashes (not on every state change)
+  useEffect(() => {
+    // Only load when transitioning TO crashed state
+    if (gameState === "crashed" && lastGameStateRef.current !== "crashed") {
+      getUserCrashHistory().then(setBetHistory);
+    }
+    lastGameStateRef.current = gameState;
+  }, [gameState]);
+  
+  // Initial load
+  useEffect(() => {
+    getUserCrashHistory().then(setBetHistory);
+  }, []);
 
   // Auto-cashout logic
   useEffect(() => {
     if (
       gameState === "running" &&
-      userBet &&
-      !userBet.cashedOut &&
+      effectiveBet &&
+      !effectiveCashedOut &&
       autoCashoutAt &&
       !autoCashoutTriggered.current
     ) {
       const target = parseFloat(autoCashoutAt);
       if (!isNaN(target) && target > 1 && currentMultiplier >= target) {
         autoCashoutTriggered.current = true;
-        onCashOut().then((result) => {
-          if (result.success) {
-            setSuccess(`auto x${result.multiplier?.toFixed(2)} (+${result.profit?.toFixed(2)})`);
-            if (result.newBalance !== undefined) {
-              setBalance(result.newBalance.toFixed(2));
-            }
-          }
-        });
+        // Utiliser handleCashOut qui fait l'update optimiste
+        handleCashOut();
       }
     }
-  }, [gameState, userBet, currentMultiplier, autoCashoutAt, setBalance, onCashOut]);
+  }, [gameState, effectiveBet, effectiveCashedOut, currentMultiplier, autoCashoutAt]);
 
   // Reset auto-cashout trigger when game ends
   useEffect(() => {
@@ -105,45 +133,47 @@ export function CrashBetPanel({
       return;
     }
 
-    // Optimistic UI - instant feedback
-    setSuccess("ok");
+    // INSTANT: UI optimiste - affiche immédiatement comme si bet placé
+    setOptimisticBet({ bet: amount });
     const newBalance = parseFloat(userBalance) - amount;
     setBalance(newBalance.toFixed(2));
     
-    // Fire and forget - don't block UI
+    // Fire and forget - serveur confirme en background
     placeCrashBet(amount).then(result => {
       if (!result.success) {
         setError(result.error || "erreur");
-        setSuccess(null);
-        setBalance(userBalance); // Rollback
+        setOptimisticBet(null); // Rollback UI
+        setBalance(userBalance);
       }
     });
   };
 
   const handleCashOut = () => {
-    if (!userBet) return;
+    const bet = effectiveBet;
+    if (!bet) return;
     
-    // Optimistic update - INSTANT feedback
-    const estimatedProfit = (userBet.bet * currentMultiplier * 0.95) - userBet.bet;
-    setSuccess(`x${currentMultiplier.toFixed(2)} (+${estimatedProfit.toFixed(2)})`);
+    // INSTANT: Calcul et affichage immédiat
+    const betAmount = bet.bet;
+    const multiplier = currentMultiplier;
+    const profit = Math.floor((betAmount * multiplier * 0.95 - betAmount) * 100) / 100;
     
-    // Update balance optimistically
-    const estimatedWin = userBet.bet + estimatedProfit;
-    const newBalance = parseFloat(userBalance) + estimatedWin;
+    // UI optimiste - affiche immédiatement comme si cashout réussi
+    setOptimisticCashout({ multiplier, profit });
+    const newBalance = parseFloat(userBalance) + betAmount + profit;
     setBalance(newBalance.toFixed(2));
     
-    // Fire and forget - don't block UI
+    // Fire and forget - serveur confirme en background
     onCashOut().then(result => {
       if (!result.success) {
         setError(result.error || "erreur cashout");
-        setSuccess(null);
-        setBalance(userBalance); // Rollback
+        setOptimisticCashout(null); // Rollback UI
+        setBalance(userBalance);
       }
     });
   };
 
-  const potentialWin = userBet && !userBet.cashedOut 
-    ? (userBet.bet * currentMultiplier * 0.95).toFixed(2)
+  const potentialWin = effectiveBet && !effectiveCashedOut 
+    ? (effectiveBet.bet * currentMultiplier * 0.95).toFixed(2)
     : null;
 
   const quickBets = [0.5, 1, 2, 5, 10];
@@ -163,7 +193,7 @@ export function CrashBetPanel({
       )}
 
       {/* Si pas de bet en cours */}
-      {!userBet && gameState === "waiting" && (
+      {!effectiveBet && gameState === "waiting" && (
         <>
           {/* Input mise */}
           <div className="flex flex-col gap-2">
@@ -217,21 +247,21 @@ export function CrashBetPanel({
           {/* Bet button */}
           <button
             onClick={handleBet}
-            disabled={isLoading || gameState !== "waiting"}
+            disabled={gameState !== "waiting"}
             className="w-full py-4 text-sm border border-[var(--text)] 
               hover:bg-[rgba(255,255,255,0.05)] transition-colors
               disabled:opacity-30 disabled:cursor-not-allowed uppercase tracking-widest"
           >
-            {isLoading ? "..." : "parier"}
+            parier
           </button>
         </>
       )}
 
       {/* Si bet placé mais partie pas commencée */}
-      {userBet && !userBet.cashedOut && gameState === "waiting" && (
+      {effectiveBet && !effectiveCashedOut && gameState === "waiting" && (
         <div className="text-center py-6">
           <p className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">mise</p>
-          <p className="text-xl font-mono mt-1">{userBet.bet}</p>
+          <p className="text-xl font-mono mt-1">{effectiveBet.bet}</p>
           {autoCashoutAt && (
             <p className="text-xs text-[var(--text-muted)] mt-2">
               auto @ x{parseFloat(autoCashoutAt).toFixed(2)}
@@ -241,7 +271,7 @@ export function CrashBetPanel({
       )}
 
       {/* Si bet en cours - bouton cashout */}
-      {userBet && !userBet.cashedOut && gameState === "running" && (
+      {effectiveBet && !effectiveCashedOut && gameState === "running" && (
         <div className="flex flex-col gap-3">
           <div className="text-center">
             <p className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">gain</p>
@@ -250,46 +280,45 @@ export function CrashBetPanel({
           
           <button
             onClick={handleCashOut}
-            disabled={isLoading}
             className="w-full py-6 text-sm border-2 border-[var(--text)] 
               hover:bg-[var(--text)] hover:text-[var(--bg)] transition-colors
-              disabled:opacity-30 disabled:cursor-not-allowed uppercase tracking-widest font-medium"
+              uppercase tracking-widest font-medium active:scale-95 transition-transform"
           >
-            {isLoading ? "..." : "cashout"}
+            cashout
           </button>
         </div>
       )}
 
       {/* Si cashedout */}
-      {userBet?.cashedOut && (
+      {effectiveCashedOut && (
         <div className="text-center py-6">
           <p className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">cashout</p>
           <p className="text-xl font-mono mt-1">
-            x{userBet.cashOutMultiplier?.toFixed(2)}
+            x{effectiveCashedOut.multiplier.toFixed(2)}
           </p>
           <p className="text-sm font-mono mt-1 text-[var(--text-muted)]">
-            +{userBet.profit?.toFixed(2)}
+            +{effectiveCashedOut.profit.toFixed(2)}
           </p>
         </div>
       )}
 
       {/* Si crashed sans cashout */}
-      {userBet && !userBet.cashedOut && gameState === "crashed" && (
+      {effectiveBet && !effectiveCashedOut && gameState === "crashed" && (
         <div className="text-center py-6">
           <p className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">perdu</p>
-          <p className="text-xl font-mono mt-1">-{userBet.bet}</p>
+          <p className="text-xl font-mono mt-1">-{effectiveBet.bet}</p>
         </div>
       )}
 
       {/* Paris fermés */}
-      {!userBet && gameState === "running" && (
+      {!effectiveBet && gameState === "running" && (
         <div className="text-center py-6 text-[var(--text-muted)]">
           <p className="text-[0.65rem] uppercase tracking-widest">paris fermes</p>
         </div>
       )}
 
       {/* Affichage après crash si pas de bet */}
-      {!userBet && gameState === "crashed" && (
+      {!effectiveBet && gameState === "crashed" && (
         <div className="text-center py-6 text-[var(--text-muted)]">
           <p className="text-xs">nouvelle partie...</p>
         </div>
