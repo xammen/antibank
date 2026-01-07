@@ -474,7 +474,7 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
       {/* Probabilities */}
       <div className="grid grid-cols-2 gap-3 relative">
         {/* Phase Guide - positioned to the left */}
-        <div className="hidden xl:block absolute right-full mr-4 top-0 w-36 text-[0.5rem] text-[var(--text-muted)] space-y-1.5 opacity-40">
+        <div className="hidden xl:block absolute right-full mr-4 top-0 w-36 text-[0.5rem] text-[var(--text-muted)] space-y-1.5 opacity-60 hover:opacity-100 transition-opacity select-none pointer-events-auto">
           <p><span className="text-[var(--text)]">accumulation</span> 1-3min · calme</p>
           <p><span className="text-green-400">hausse</span> 45s-1.5min · monte</p>
           <p><span className="text-green-500">euphorie</span> 20-45s · vendre vite</p>
