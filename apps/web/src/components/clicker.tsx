@@ -33,6 +33,8 @@ export function Clicker({ userId, clickValue = 0.01, icon = "cookie" }: ClickerP
   
   // Batching state
   const pendingClicks = useRef<number>(0);
+  const optimisticAmount = useRef<number>(0); // Track optimistic balance added
+  const lastServerBalance = useRef<number | null>(null);
   const batchTimeout = useRef<NodeJS.Timeout | null>(null);
   const isSyncing = useRef<boolean>(false);
 
@@ -54,7 +56,9 @@ export function Clicker({ userId, clickValue = 0.01, icon = "cookie" }: ClickerP
     
     isSyncing.current = true;
     const clicksToSync = pendingClicks.current;
+    const optimisticSynced = optimisticAmount.current;
     pendingClicks.current = 0;
+    optimisticAmount.current = 0;
     
     try {
       const result = await clickBatch(userId, clicksToSync);
@@ -64,20 +68,33 @@ export function Clicker({ userId, clickValue = 0.01, icon = "cookie" }: ClickerP
         if (result.clicksRemaining !== undefined) {
           setClicksRemaining(result.clicksRemaining);
         }
-        // Sync avec le vrai solde serveur
+        // Sync avec le vrai solde serveur - mais ajoute les clics optimistes en cours
         if (result.newBalance !== undefined) {
-          setBalance(result.newBalance.toFixed(2));
+          lastServerBalance.current = result.newBalance;
+          // Ajoute les clics qui ont été faits pendant le sync
+          const pendingOptimistic = optimisticAmount.current;
+          setBalance((result.newBalance + pendingOptimistic).toFixed(2));
         }
       } else {
+        // Erreur - on rollback seulement les clics qui ont échoué
+        // mais on garde les nouveaux clics optimistes
         setError(result.error || "erreur");
         if (result.clicksRemaining !== undefined) {
           setClicksRemaining(result.clicksRemaining);
+        }
+        // Rollback les clics échoués si on a le dernier solde serveur
+        if (lastServerBalance.current !== null) {
+          const pendingOptimistic = optimisticAmount.current;
+          setBalance((lastServerBalance.current + pendingOptimistic).toFixed(2));
         }
         if (errorTimeout.current) clearTimeout(errorTimeout.current);
         errorTimeout.current = setTimeout(() => setError(null), 2000);
       }
     } catch {
       setError("erreur reseau");
+      // En cas d'erreur réseau, on re-ajoute les clics au pending pour réessayer
+      pendingClicks.current += clicksToSync;
+      optimisticAmount.current += optimisticSynced;
       errorTimeout.current = setTimeout(() => setError(null), 2000);
     } finally {
       isSyncing.current = false;

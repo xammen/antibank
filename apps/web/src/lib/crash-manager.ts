@@ -198,11 +198,17 @@ class CrashGameManager {
     // TODO: ajouter un champ autoCashoutAt dans CrashBet
   }
 
-  canBet(gameStatus: string): boolean {
-    return gameStatus === "waiting";
+  async canBet(): Promise<boolean> {
+    const game = await this.getOrCreateCurrentGame();
+    return game.status === "waiting";
   }
 
-  async hasPlayerBet(gameId: string, userId: string): Promise<boolean> {
+  async hasPlayerBet(userId: string): Promise<boolean> {
+    const game = await this.getOrCreateCurrentGame();
+    return this.hasPlayerBetInGame(game.id, userId);
+  }
+
+  private async hasPlayerBetInGame(gameId: string, userId: string): Promise<boolean> {
     const bet = await prisma.crashBet.findFirst({
       where: {
         crashGameId: gameId,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { placeCrashBet, cashOutCrash } from "@/actions/crash";
@@ -13,6 +13,7 @@ interface CrashBetPanelProps {
     cashedOut: boolean;
     profit?: number;
     cashOutMultiplier?: number;
+    autoCashout?: number;
   };
   currentMultiplier: number;
   userBalance: string;
@@ -25,10 +26,44 @@ export function CrashBetPanel({
   userBalance,
 }: CrashBetPanelProps) {
   const [betAmount, setBetAmount] = useState("1");
+  const [autoCashoutAt, setAutoCashoutAt] = useState("");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const { setBalance } = useBalance(userBalance);
+  const autoCashoutTriggered = useRef(false);
+
+  // Auto-cashout logic
+  useEffect(() => {
+    if (
+      gameState === "running" &&
+      userBet &&
+      !userBet.cashedOut &&
+      autoCashoutAt &&
+      !autoCashoutTriggered.current
+    ) {
+      const target = parseFloat(autoCashoutAt);
+      if (!isNaN(target) && target > 1 && currentMultiplier >= target) {
+        autoCashoutTriggered.current = true;
+        // Trigger cashout
+        cashOutCrash().then((result) => {
+          if (result.success) {
+            setSuccess(`auto-cashout x${result.multiplier?.toFixed(2)} (+${result.profit?.toFixed(2)}€)`);
+            if (result.newBalance !== undefined) {
+              setBalance(result.newBalance.toFixed(2));
+            }
+          }
+        });
+      }
+    }
+  }, [gameState, userBet, currentMultiplier, autoCashoutAt, setBalance]);
+
+  // Reset auto-cashout trigger when game ends
+  useEffect(() => {
+    if (gameState === "waiting" || gameState === "crashed") {
+      autoCashoutTriggered.current = false;
+    }
+  }, [gameState]);
 
   const handleBet = () => {
     setError(null);

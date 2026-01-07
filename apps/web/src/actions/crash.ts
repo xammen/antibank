@@ -46,12 +46,12 @@ export async function placeCrashBet(amount: number): Promise<BetResult> {
 
   // Vérifier si le manager accepte les paris
   const manager = getCrashManager();
-  if (!manager.canBet()) {
+  if (!(await manager.canBet())) {
     return { success: false, error: "paris fermés" };
   }
 
   // Vérifier si le joueur a déjà parié
-  if (manager.hasPlayerBet(session.user.id)) {
+  if (await manager.hasPlayerBet(session.user.id)) {
     return { success: false, error: "déjà parié" };
   }
 
@@ -74,7 +74,7 @@ export async function placeCrashBet(amount: number): Promise<BetResult> {
 
     // Ajouter au manager
     const username = user.discordUsername || "anon";
-    manager.placeBet(session.user.id, username, amount);
+    await manager.placeBet(session.user.id, username, amount);
 
     revalidatePath("/casino/crash");
     return { success: true };
@@ -91,7 +91,7 @@ export async function cashOutCrash(): Promise<CashOutResult> {
   }
 
   const manager = getCrashManager();
-  const result = manager.cashOut(session.user.id);
+  const result = await manager.cashOut(session.user.id);
 
   if (!result.success) {
     return { success: false, error: "impossible de cashout" };
