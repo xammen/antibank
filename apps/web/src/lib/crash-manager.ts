@@ -10,6 +10,7 @@ import {
   CRASH_CONFIG,
 } from "./crash";
 import { addToAntibank } from "./antibank-corp";
+import { trackHeistCrashGame, trackHeistCasinoWin, trackHeistCasinoLoss } from "@/actions/heist";
 
 interface CrashPlayerPublic {
   odrzerId: string;
@@ -406,6 +407,9 @@ class CrashGameManager {
           where: { id: bet.id },
           data: { profit: new Prisma.Decimal(-lossAmount) }
         });
+        
+        // Track casino loss pour la quête heist (reset win streak)
+        trackHeistCasinoLoss(bet.userId).catch(() => {});
       }
 
       // Envoyer les pertes à ANTIBANK CORP
@@ -489,6 +493,11 @@ class CrashGameManager {
         }
       });
 
+      // Track pour la quête heist (si mise >= 1€)
+      if (amount >= 1) {
+        trackHeistCrashGame(userId).catch(() => {});
+      }
+
       return { success: true };
     } catch {
       return { success: false, error: "erreur" };
@@ -571,6 +580,11 @@ class CrashGameManager {
 
       if (result.count === 0) {
         return { success: false };
+      }
+
+      // Track casino win pour la quête heist (profit > 0 = win)
+      if (profit > 0) {
+        trackHeistCasinoWin(userId).catch(() => {});
       }
 
       return { success: true, multiplier, profit, bet: betAmount };

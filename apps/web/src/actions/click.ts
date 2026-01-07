@@ -2,6 +2,7 @@
 
 import { prisma } from "@antibank/db";
 import { calculateClickBonus } from "@/lib/upgrades";
+import { trackHeistFastClicks } from "./heist";
 
 const BASE_CLICK_VALUE = 0.01;
 const MAX_CLICKS_PER_DAY = 5000;
@@ -15,6 +16,10 @@ const MAX_BATCHES_PER_5_SEC = 20;       // max batches sur 5 sec
 // Stockage des timestamps de batches par utilisateur
 const batchHistory = new Map<string, number[]>();
 const suspiciousUsers = new Map<string, number>();
+
+// Track pour le booster heist "5000 clics en <20 min"
+const clickSessionStart = new Map<string, { startTime: Date; clicks: number }>();
+const FAST_CLICK_WINDOW_MS = 20 * 60 * 1000; // 20 minutes
 
 function cleanOldBatches(batches: number[], now: number): number[] {
   return batches.filter(t => now - t < WINDOW_SIZE_MS);
@@ -112,6 +117,26 @@ export async function clickBatch(userId: string, count: number): Promise<ClickBa
         lastClickReset: today > lastReset ? new Date() : undefined,
       },
     });
+
+    // Track pour le booster heist "5000 clics en <20 min"
+    let session = clickSessionStart.get(userId);
+    const sessionNow = new Date();
+    
+    if (!session || (sessionNow.getTime() - session.startTime.getTime()) > FAST_CLICK_WINDOW_MS) {
+      // Nouvelle session ou session expirée
+      session = { startTime: sessionNow, clicks: actualClicks };
+    } else {
+      // Session existante, ajouter les clics
+      session.clicks += actualClicks;
+    }
+    clickSessionStart.set(userId, session);
+    
+    // Vérifier si on a atteint 5000 clics en moins de 20 min
+    if (session.clicks >= 5000) {
+      trackHeistFastClicks(userId, session.clicks, session.startTime).catch(() => {});
+      // Reset la session après avoir validé le booster
+      clickSessionStart.delete(userId);
+    }
 
     return { 
       success: true, 

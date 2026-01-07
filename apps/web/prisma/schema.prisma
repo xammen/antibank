@@ -469,3 +469,101 @@ model DahkaCoinTx {
   @@index([userId])
   @@index([createdAt])
 }
+
+// ============================================
+// INVENTAIRE - Items consommables
+// ============================================
+
+model InventoryItem {
+  id          String   @id @default(cuid())
+  
+  userId      String
+  itemId      String   // ID de l'item (pied_de_biche, gilet_pare_balles, etc.)
+  
+  charges     Int      // Utilisations restantes (-1 = permanent)
+  expiresAt   DateTime? // Pour les items temporaires (VPN, etc.)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, itemId])
+}
+
+// ============================================
+// CLICK BATTLE - Duel de clics
+// ============================================
+
+model ClickBattle {
+  id           String   @id @default(cuid())
+  
+  player1Id    String   // Celui qui lance le défi
+  player2Id    String?  // Celui qui accepte
+  
+  amount       Decimal  @db.Decimal(10, 2) // Mise de chaque joueur
+  duration     Int      @default(10) // Durée en secondes (10s par défaut)
+  
+  // Ready states - les deux doivent cliquer "PRET" avant countdown
+  player1Ready   Boolean @default(false)
+  player2Ready   Boolean @default(false)
+  
+  // Résultats (soumis à la fin)
+  player1Clicks  Int?
+  player2Clicks  Int?
+  winnerId       String?  // null si égalité
+  
+  status       String   @default("pending") // "pending", "accepted", "playing", "revealing", "completed", "cancelled", "expired"
+  
+  // Timestamps
+  acceptedAt   DateTime?
+  startedAt    DateTime? // Quand les deux joueurs ont confirmé être prêts
+  revealedAt   DateTime? // Quand les résultats sont révélés
+  
+  expiresAt    DateTime // Expire après 5 min si pas accepté
+  createdAt    DateTime @default(now())
+  completedAt  DateTime?
+
+  @@index([player1Id])
+  @@index([player2Id])
+  @@index([status])
+}
+
+// ============================================
+// ANTIBANK HEIST - Système de quête
+// ============================================
+
+model HeistProgress {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  
+  // Stage 1: Reconnaissance
+  voiceMinutes      Int      @default(0)   // 60 min requis (avec ≥1 autre personne)
+  crashGamesPlayed  Int      @default(0)   // 10 parties requis (mise ≥1€)
+  stage1Complete    Boolean  @default(false)
+  
+  // Stage 2: Financement
+  // balance >= 50€ (check live)
+  successfulRobberies  Int      @default(0)   // 3 requis
+  stage2Complete       Boolean  @default(false)
+  
+  // Stage 3: Équipement (check inventory live pour pied_de_biche + kit_crochetage)
+  // Optionnel: gilet_pare_balles (+10% chance), vpn (40% loss au lieu de 60%)
+  stage3Complete    Boolean  @default(false)
+  
+  // Stage 4: Boosters (reset après chaque tentative)
+  fastClicksAt      DateTime?  // Quand les 5000 clics en <20min ont été faits
+  casinoWinStreak   Int      @default(0)   // Streak actuel
+  bestWinStreak     Int      @default(0)   // Meilleur streak (5 requis pour bonus)
+  survivedRobbery   Boolean  @default(false)  // A survécu à un braquage raté contre lui
+  stage4Complete    Boolean  @default(false)
+  
+  // Heist tracking
+  lastHeistAt       DateTime?  // Dernier braquage ANTIBANK (cooldown 6h)
+  totalHeistAttempts Int     @default(0)
+  totalHeistSuccesses Int    @default(0)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([userId])
+}

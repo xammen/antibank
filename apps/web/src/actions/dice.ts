@@ -5,6 +5,7 @@ import { prisma, Prisma } from "@antibank/db";
 import { rollDice, determineWinner, calculateDiceWinnings, DICE_CONFIG } from "@/lib/dice";
 import { revalidatePath } from "next/cache";
 import { addToAntibank } from "@/lib/antibank-corp";
+import { trackHeistCasinoWin, trackHeistCasinoLoss } from "./heist";
 
 export interface CreateChallengeResult {
   success: boolean;
@@ -670,6 +671,13 @@ export async function playDiceVsBot(amount: number): Promise<PlayVsBotResult> {
     // Envoyer les gains à ANTIBANK
     if (antibankGain > 0) {
       addToAntibank(antibankGain, "dice vs bot").catch(() => {});
+    }
+
+    // Track pour la quête heist
+    if (result === "player1") {
+      trackHeistCasinoWin(session.user.id).catch(() => {});
+    } else if (result === "player2") {
+      trackHeistCasinoLoss(session.user.id).catch(() => {});
     }
 
     revalidatePath("/casino/dice");

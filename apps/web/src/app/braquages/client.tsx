@@ -10,6 +10,7 @@ import {
   attemptAntibankRobbery,
   getAntibankRobberyInfo,
 } from "@/actions/robbery";
+import { getHeistProgress, type HeistProgress } from "@/actions/heist";
 import {
   getActiveBounties,
   createBounty,
@@ -71,6 +72,10 @@ export function RobberyClient({ userId }: RobberyClientProps) {
   const [bountyAmount, setBountyAmount] = useState("1");
   const [isCreatingBounty, setIsCreatingBounty] = useState(false);
 
+  // Heist Quest State
+  const [heistProgress, setHeistProgress] = useState<HeistProgress | null>(null);
+  const [expandedStage, setExpandedStage] = useState<number | null>(null);
+
   // ANTIBANK CORP state
   const [antibankInfo, setAntibankInfo] = useState<{
     canRob: boolean;
@@ -82,12 +87,13 @@ export function RobberyClient({ userId }: RobberyClientProps) {
   const [isRobbingAntibank, setIsRobbingAntibank] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [targetsRes, cooldownRes, historyRes, bountiesRes, antibankRes] = await Promise.all([
+    const [targetsRes, cooldownRes, historyRes, bountiesRes, antibankRes, heistRes] = await Promise.all([
       getRobberyTargets(),
       getRobberyCooldown(),
       getRobberyHistory(10),
       getActiveBounties(),
       getAntibankRobberyInfo(),
+      getHeistProgress(),
     ]);
 
     if (targetsRes.success && targetsRes.targets) {
@@ -102,6 +108,13 @@ export function RobberyClient({ userId }: RobberyClientProps) {
       setBounties(bountiesRes.bounties);
     }
     setAntibankInfo(antibankRes);
+    setHeistProgress(heistRes);
+    
+    // Auto-expand current stage
+    if (heistRes) {
+      setExpandedStage(heistRes.currentStage);
+    }
+    
     setIsLoading(false);
   }, []);
 
@@ -286,44 +299,184 @@ export function RobberyClient({ userId }: RobberyClientProps) {
         </div>
       )}
 
-      {/* ANTIBANK CORP - Cible spéciale */}
-      {antibankInfo && antibankInfo.canRob && (
+      {/* OPERATION ANTIBANK QUEST */}
+      {heistProgress && (
         <section>
-          <h2 className="text-[0.75rem] uppercase tracking-widest text-red-400 mb-3">
-            cible speciale
+          <h2 className="text-[0.75rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">
+            operation antibank
           </h2>
-          <div className="p-4 border-2 border-red-500/50 bg-red-500/5">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="text-sm font-medium text-red-400">ANTIBANK CORP</p>
-                <p className="text-[0.7rem] text-[var(--text-muted)]">
-                  tresor: {antibankInfo.balance.toFixed(2)}€
-                </p>
+          <div className="flex flex-col border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
+            
+            {/* Header / Global Status */}
+            <div className="p-4 border-b border-[var(--line)]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium">progression</span>
+                <span className="text-[0.7rem] text-[var(--text-muted)]">
+                  etape {heistProgress.currentStage}/5
+                </span>
               </div>
-              <button
-                onClick={handleRobAntibank}
-                disabled={!canRob || isRobbingAntibank}
-                className={`
-                  px-4 py-2 text-[0.75rem] uppercase tracking-wider border-2
-                  ${canRob && !isRobbingAntibank
-                    ? "border-red-500 text-red-400 hover:bg-red-500/20"
-                    : "border-red-500/30 text-red-400/50 cursor-not-allowed"
-                  }
-                  transition-all
-                `}
-              >
-                {isRobbingAntibank ? "..." : "braquer"}
-              </button>
+              <div className="h-1 w-full bg-[#1a1a1a] overflow-hidden">
+                <div 
+                  className="h-full bg-[var(--text)] transition-all duration-500"
+                  style={{ width: `${(heistProgress.stages.filter(s => s.complete).length / 5) * 100}%` }}
+                />
+              </div>
             </div>
-            <div className="text-[0.65rem] text-[var(--text-muted)] space-y-1">
-              <p>
-                <span className="text-red-400">{antibankInfo.successChance}%</span> de chances de reussite
+
+            {/* Stages */}
+            {heistProgress.stages.map((stage) => {
+              const isLocked = stage.stage > heistProgress.currentStage;
+              const isCurrent = stage.stage === heistProgress.currentStage;
+              const isExpanded = expandedStage === stage.stage || (stage.complete && expandedStage === stage.stage);
+
+              return (
+                <div key={stage.stage} className={`border-b border-[var(--line)] last:border-0 ${isLocked ? 'opacity-50' : ''}`}>
+                  <button
+                    onClick={() => !isLocked && setExpandedStage(isExpanded ? null : stage.stage)}
+                    disabled={isLocked}
+                    className="w-full flex items-center justify-between p-4 hover:bg-[rgba(255,255,255,0.02)] transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex gap-0.5">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <div 
+                            key={i} 
+                            className={`w-1.5 h-1.5 ${i + 1 <= stage.stage ? (stage.complete ? 'bg-green-500' : 'bg-[var(--text)]') : 'bg-[var(--line)]'}`}
+                          />
+                        ))}
+                      </div>
+                      <span className={`text-sm uppercase tracking-wider ${isCurrent ? 'text-[var(--text)]' : 'text-[var(--text-muted)]'}`}>
+                        stage {stage.stage}: {stage.name}
+                      </span>
+                    </div>
+                    {stage.complete && <span className="text-green-500 text-[0.8rem]">✓</span>}
+                    {isLocked && <span className="text-[0.7rem] text-[var(--text-muted)]">(verrouille)</span>}
+                  </button>
+
+                  {/* Stage Details */}
+                  {isExpanded && !isLocked && (
+                    <div className="px-4 pb-4 pt-0 animate-fade-in">
+                      <div className="pl-4 border-l border-[var(--line)] ml-2 space-y-4">
+                        {stage.requirements.map((req) => (
+                          <div key={req.id} className="space-y-1">
+                            <div className="flex items-center justify-between text-[0.75rem]">
+                              <span className={req.complete ? "text-[var(--text-muted)] line-through" : "text-[var(--text)]"}>
+                                {req.label}
+                              </span>
+                              <span className={req.complete ? "text-green-500" : "text-[var(--text-muted)]"}>
+                                {req.id === 'balance' || req.id === 'entry_fee' ? `${req.current.toFixed(2)}€` : req.current} / {req.required}{req.id === 'balance' ? '€' : ''}
+                              </span>
+                            </div>
+                            <div className="h-0.5 w-full bg-[#1a1a1a]">
+                              <div 
+                                className={`h-full transition-all duration-500 ${req.complete ? 'bg-green-500' : 'bg-[var(--line)]'}`}
+                                style={{ width: `${Math.min(100, (req.current / req.required) * 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* Stage 4 Boosters Display */}
+                        {stage.stage === 4 && (
+                          <div className="mt-4 p-3 bg-[rgba(255,255,255,0.02)] border border-[var(--line)]">
+                            <p className="text-[0.7rem] uppercase tracking-wider text-[var(--text-muted)] mb-2">bonus actifs</p>
+                            <div className="space-y-1 text-[0.7rem]">
+                              {heistProgress.bonuses.chanceBonus > 0 && (
+                                <div className="flex justify-between text-green-400">
+                                  <span>+ chance de reussite</span>
+                                  <span>+{heistProgress.bonuses.chanceBonus}%</span>
+                                </div>
+                              )}
+                              {heistProgress.bonuses.lootBonus > 0 && (
+                                <div className="flex justify-between text-green-400">
+                                  <span>+ butin vole</span>
+                                  <span>+{heistProgress.bonuses.lootBonus}%</span>
+                                </div>
+                              )}
+                              {heistProgress.bonuses.lossReduction > 0 && (
+                                <div className="flex justify-between text-green-400">
+                                  <span>- perte en cas d'echec</span>
+                                  <span>-{heistProgress.bonuses.lossReduction}%</span>
+                                </div>
+                              )}
+                              {Object.values(heistProgress.bonuses).every(v => v === 0) && (
+                                <span className="text-[var(--text-muted)] italic">aucun bonus actif</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Stage 5 Launch Panel */}
+                        {stage.stage === 5 && (
+                          <div className="mt-4 space-y-3">
+                            <div className="p-3 bg-[rgba(255,255,255,0.02)] border border-[var(--line)] space-y-2">
+                              <p className="text-[0.7rem] uppercase tracking-wider text-[var(--text-muted)] mb-2">stats finales</p>
+                              
+                              <div className="flex justify-between text-[0.75rem]">
+                                <span className="text-[var(--text-muted)]">succes</span>
+                                <span className={heistProgress.finalStats.successChance >= 50 ? "text-green-400" : "text-yellow-400"}>
+                                  {heistProgress.finalStats.successChance}%
+                                </span>
+                              </div>
+                              <div className="flex justify-between text-[0.75rem]">
+                                <span className="text-[var(--text-muted)]">tresor vise</span>
+                                <span className="text-[var(--text)]">
+                                  {heistProgress.finalStats.treasurySteal}%
+                                </span>
+                              </div>
+                              <div className="flex justify-between text-[0.75rem]">
+                                <span className="text-[var(--text-muted)]">perte echec</span>
+                                <span className="text-red-400">
+                                  {heistProgress.finalStats.failLoss}%
+                                </span>
+                              </div>
+                            </div>
+
+                            <button
+                              onClick={handleRobAntibank}
+                              disabled={!heistProgress.canAttemptHeist || isRobbingAntibank}
+                              className={`
+                                w-full py-3 text-[0.8rem] uppercase tracking-widest border-2
+                                ${heistProgress.canAttemptHeist && !isRobbingAntibank
+                                  ? "border-red-500 bg-red-500/10 text-red-500 hover:bg-red-500/20" 
+                                  : "border-[var(--line)] text-[var(--text-muted)] cursor-not-allowed bg-[#1a1a1a]"
+                                }
+                                transition-all
+                              `}
+                            >
+                              {isRobbingAntibank ? "lancement..." : "lancer l'operation"}
+                            </button>
+                            
+                            {heistProgress.cooldownEndsAt && (
+                              <p className="text-center text-[0.7rem] text-red-400">
+                                recuperation en cours...
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* ANTIBANK CORP info panel - shows treasury info when heist isn't ready */}
+      {antibankInfo && !heistProgress?.canAttemptHeist && (
+        <section>
+          <h2 className="text-[0.75rem] uppercase tracking-widest text-red-400/50 mb-3">
+            antibank corp
+          </h2>
+          <div className="p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
+            <div className="text-center">
+              <p className="text-[0.7rem] text-[var(--text-muted)]">
+                tresor actuel: <span className="text-red-400">{antibankInfo.balance.toFixed(2)}€</span>
               </p>
-              <p>
-                succes: <span className="text-green-400">+{antibankInfo.maxSteal.toFixed(2)}€</span> (5% du tresor)
-              </p>
-              <p>
-                echec: <span className="text-red-400">-{antibankInfo.riskPercent}%</span> de ta balance
+              <p className="text-[0.65rem] text-[var(--text-muted)] mt-2">
+                complete l'operation antibank pour braquer le tresor
               </p>
             </div>
           </div>

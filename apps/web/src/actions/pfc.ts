@@ -11,6 +11,7 @@ import {
 } from "@/lib/pfc";
 import { revalidatePath } from "next/cache";
 import { addToAntibank } from "@/lib/antibank-corp";
+import { trackHeistCasinoWin, trackHeistCasinoLoss } from "./heist";
 
 export interface CreatePFCResult {
   success: boolean;
@@ -346,6 +347,13 @@ export async function playPFCVsBot(
     // Si le joueur a perdu, envoyer la mise à ANTIBANK CORP
     if (result === "player2") {
       addToAntibank(amount, "pfc vs bot - perte joueur").catch(() => {});
+    }
+
+    // Track pour la quête heist
+    if (result === "player1") {
+      trackHeistCasinoWin(session.user.id).catch(() => {});
+    } else if (result === "player2") {
+      trackHeistCasinoLoss(session.user.id).catch(() => {});
     }
 
     revalidatePath("/casino/pfc");

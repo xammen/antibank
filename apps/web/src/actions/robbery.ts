@@ -9,8 +9,8 @@ import {
   resetHeistBoosters,
   trackHeistRobberySuccess,
   trackHeistSurvivedRobbery,
-  HEIST_CONFIG 
 } from "./heist";
+import { HEIST_CONFIG } from "@/lib/heist-config";
 
 // Config braquage
 const ROBBERY_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3h
