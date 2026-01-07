@@ -13,10 +13,26 @@ export default async function ShopPage() {
     redirect("/");
   }
 
-  // Récupérer les upgrades du user
-  const userUpgrades = await prisma.userUpgrade.findMany({
-    where: { userId: session.user.id },
-  });
+  // Requêtes en parallèle
+  const [userUpgrades, userInventory] = await Promise.all([
+    prisma.userUpgrade.findMany({
+      where: { userId: session.user.id },
+    }),
+    prisma.inventoryItem.findMany({
+      where: {
+        userId: session.user.id,
+        charges: { not: 0 },
+        OR: [
+          { expiresAt: null },
+          { expiresAt: { gt: new Date() } },
+        ],
+      },
+      select: {
+        itemId: true,
+        charges: true,
+      },
+    }),
+  ]);
 
   const upgradeMap = userUpgrades.reduce(
     (acc, u) => {
@@ -25,22 +41,6 @@ export default async function ShopPage() {
     },
     {} as Record<string, number>
   );
-
-  // Récupérer l'inventaire du user
-  const userInventory = await prisma.inventoryItem.findMany({
-    where: {
-      userId: session.user.id,
-      charges: { not: 0 },
-      OR: [
-        { expiresAt: null },
-        { expiresAt: { gt: new Date() } },
-      ],
-    },
-    select: {
-      itemId: true,
-      charges: true,
-    },
-  });
 
   return (
     <BalanceProvider initialBalance={session.user.balance}>
