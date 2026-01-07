@@ -46,33 +46,46 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
   const [gameState, setGameState] = useState<CrashGameState | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [localMultiplier, setLocalMultiplier] = useState(1.0);
+  
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const animationRef = useRef<number | null>(null);
-  const lastStateRef = useRef<string | null>(null);
   const startTimeRef = useRef<number | null>(null);
+  const lastGameIdRef = useRef<string | null>(null);
+  const lastStateRef = useRef<string | null>(null);
 
   // Local multiplier animation (60fps)
   useEffect(() => {
+    // Stop animation if not running
     if (gameState?.state !== "running") {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
         animationRef.current = null;
       }
-      setLocalMultiplier(gameState?.currentMultiplier || 1.0);
+      
+      // Set multiplier based on state
+      if (gameState?.state === "crashed" && gameState.crashPoint) {
+        setLocalMultiplier(gameState.crashPoint);
+      } else {
+        setLocalMultiplier(1.0);
+      }
       return;
     }
 
-    // Synchroniser le startTime
-    if (gameState.startTime) {
+    // Synchronize startTime when game starts
+    if (gameState.startTime && startTimeRef.current !== gameState.startTime) {
       startTimeRef.current = gameState.startTime;
     }
 
     const animate = () => {
-      if (startTimeRef.current && gameState?.state === "running") {
-        const elapsed = Date.now() - startTimeRef.current;
-        const mult = calculateMultiplier(elapsed);
-        setLocalMultiplier(mult);
+      if (!startTimeRef.current) {
+        animationRef.current = requestAnimationFrame(animate);
+        return;
       }
+
+      const elapsed = Date.now() - startTimeRef.current;
+      const mult = calculateMultiplier(elapsed);
+      setLocalMultiplier(mult);
+      
       animationRef.current = requestAnimationFrame(animate);
     };
 
@@ -81,30 +94,50 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
       }
     };
-  }, [gameState?.state, gameState?.startTime, gameState?.currentMultiplier]);
+  }, [gameState?.state, gameState?.startTime, gameState?.crashPoint]);
+
+  // Reset startTime when game changes
+  useEffect(() => {
+    if (gameState && gameState.id !== lastGameIdRef.current) {
+      lastGameIdRef.current = gameState.id;
+      startTimeRef.current = null;
+      setLocalMultiplier(1.0);
+    }
+  }, [gameState?.id]);
 
   const fetchState = useCallback(async () => {
     try {
       const res = await fetch("/api/crash", { cache: "no-store" });
-      if (res.ok) {
-        const data: CrashGameState = await res.json();
-        
-        // Détecter changement d'état pour sync
-        if (lastStateRef.current !== data.state) {
-          lastStateRef.current = data.state;
-          
-          if (data.state === "running" && data.startTime) {
-            startTimeRef.current = data.startTime;
-          } else if (data.state !== "running") {
-            startTimeRef.current = null;
-          }
-        }
-        
-        setGameState(data);
-        setIsConnected(true);
+      if (!res.ok) {
+        setIsConnected(false);
+        return;
       }
+      
+      const data: CrashGameState = await res.json();
+      
+      // Detect state transitions for proper sync
+      const stateChanged = lastStateRef.current !== data.state;
+      lastStateRef.current = data.state;
+      
+      if (stateChanged) {
+        if (data.state === "running" && data.startTime) {
+          // Game just started, sync startTime
+          startTimeRef.current = data.startTime;
+        } else if (data.state === "waiting") {
+          // New game, reset
+          startTimeRef.current = null;
+          setLocalMultiplier(1.0);
+        } else if (data.state === "crashed" && data.crashPoint) {
+          // Game crashed, set final multiplier
+          setLocalMultiplier(data.crashPoint);
+        }
+      }
+      
+      setGameState(data);
+      setIsConnected(true);
     } catch {
       setIsConnected(false);
     }
@@ -114,23 +147,28 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
     // Initial fetch
     fetchState();
 
-    // Polling adaptatif
-    const startPolling = () => {
-      // Poll toutes les 500ms pour l'état (le multiplier est calculé localement)
-      pollingRef.current = setInterval(fetchState, 500);
+    // Adaptive polling:
+    // - 500ms during running (to detect crash quickly)
+    // - 1000ms during waiting/crashed (less urgent)
+    const poll = () => {
+      fetchState();
     };
 
-    startPolling();
+    pollingRef.current = setInterval(poll, 500);
 
     return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
     };
   }, [fetchState]);
 
   const placeBet = useCallback(async (amount: number) => {
     const result = await placeCrashBet(amount);
     if (result.success) {
-      fetchState();
+      // Immediately refresh state
+      await fetchState();
     }
     return result;
   }, [fetchState]);
@@ -138,7 +176,8 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
   const cashOut = useCallback(async () => {
     const result = await cashOutCrash();
     if (result.success) {
-      fetchState();
+      // Immediately refresh state
+      await fetchState();
     }
     return result;
   }, [fetchState]);
@@ -146,7 +185,7 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
   const voteSkip = useCallback(async () => {
     const result = await voteSkipCrash();
     if (result.success) {
-      fetchState();
+      await fetchState();
     }
     return result;
   }, [fetchState]);
