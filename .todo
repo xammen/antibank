@@ -4,3 +4,19 @@
 - [x] Add DahkaCoin database models (DahkaCoinPrice table, user DC fields)
 - [x] Create DahkaCoin server actions (buy, sell, price history, update price)
 - [x] Create DahkaCoin UI page with price chart and trading interface
+
+# AntiBank - Phase 3: Heist Quest System
+
+## Tasks
+- [x] Design heist quest system (5 stages)
+- [x] Add HeistProgress database model
+- [x] Create heist.ts actions (tracking, progress, stage checks)
+- [x] Create heist-config.ts constants
+- [x] Integrate tracking in click.ts (fast clicks booster)
+- [x] Integrate tracking in dice.ts (casino win streak)
+- [x] Integrate tracking in pfc.ts (casino win streak)
+- [x] Integrate tracking in crash-manager.ts (crash games + casino streak)
+- [x] Integrate tracking in robbery.ts (robbery success + survived)
+- [x] Build quest UI in braquages/client.tsx
+- [x] Add bot voice minute tracking
+- [x] Push to remote
