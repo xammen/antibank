@@ -7,7 +7,7 @@ import {
   buyDahkaCoin,
   sellDahkaCoin,
   getDCTransactions,
-  updatePrice,
+  tickPrice,
 } from "@/actions/dahkacoin";
 
 interface PricePoint {
@@ -28,10 +28,75 @@ interface DahkaCoinClientProps {
   userId: string;
 }
 
+// Animated price display
+function AnimatedPrice({ value, trend }: { value: number; trend: number }) {
+  const [displayValue, setDisplayValue] = useState(value);
+  const [isIncreasing, setIsIncreasing] = useState(false);
+  const [isDecreasing, setIsDecreasing] = useState(false);
+  const prevValue = useRef(value);
+
+  useEffect(() => {
+    if (value !== prevValue.current) {
+      setIsIncreasing(value > prevValue.current);
+      setIsDecreasing(value < prevValue.current);
+      
+      // Animate to new value
+      const diff = value - prevValue.current;
+      const steps = 10;
+      const stepValue = diff / steps;
+      let current = prevValue.current;
+      let step = 0;
+
+      const animate = () => {
+        step++;
+        current += stepValue;
+        if (step >= steps) {
+          setDisplayValue(value);
+          prevValue.current = value;
+          setTimeout(() => {
+            setIsIncreasing(false);
+            setIsDecreasing(false);
+          }, 200);
+        } else {
+          setDisplayValue(current);
+          requestAnimationFrame(animate);
+        }
+      };
+      requestAnimationFrame(animate);
+    }
+  }, [value]);
+
+  const getTrendColor = () => {
+    if (isIncreasing) return "text-green-400";
+    if (isDecreasing) return "text-red-400";
+    if (trend > 0.3) return "text-green-400";
+    if (trend < -0.3) return "text-red-400";
+    return "text-gray-400";
+  };
+
+  const getTrendIcon = () => {
+    if (trend > 0.5) return "↑↑";
+    if (trend > 0.2) return "↑";
+    if (trend < -0.5) return "↓↓";
+    if (trend < -0.2) return "↓";
+    return "→";
+  };
+
+  return (
+    <span className={`text-3xl font-light transition-colors duration-200 ${getTrendColor()}`}>
+      {displayValue.toFixed(4)}€ {getTrendIcon()}
+    </span>
+  );
+}
+
 export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
   const [currentPrice, setCurrentPrice] = useState<number>(1);
   const [trend, setTrend] = useState<number>(0);
+  const [volatility, setVolatility] = useState<number>(1);
+  const [momentum, setMomentum] = useState<number>(0);
+  const [trendDuration, setTrendDuration] = useState<number>(0);
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
+  const [realtimePrices, setRealtimePrices] = useState<{ price: number; time: number }[]>([]);
   const [userDC, setUserDC] = useState<number>(0);
   const [userAvgPrice, setUserAvgPrice] = useState<number | null>(null);
   const [userProfit, setUserProfit] = useState<number | null>(null);
@@ -39,19 +104,16 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [period, setPeriod] = useState<"1h" | "24h" | "7d">("1h");
   
-  // Trading form
   const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
   const [tradeAmount, setTradeAmount] = useState("");
   const [isTrading, setIsTrading] = useState(false);
   const [tradeResult, setTradeResult] = useState<{ success: boolean; message: string } | null>(null);
   
-  // Price update timer
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const [secondsUntilUpdate, setSecondsUntilUpdate] = useState(30);
   const [event, setEvent] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  // Initial data load
   const loadData = useCallback(async () => {
     const [state, txs] = await Promise.all([
       getDCState(period),
@@ -60,47 +122,78 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
 
     setCurrentPrice(state.currentPrice);
     setTrend(state.trend);
+    setVolatility(state.volatility);
+    setMomentum(state.momentum);
+    setTrendDuration(state.trendDuration);
     setPriceHistory(state.priceHistory);
     setUserDC(state.userDC);
     setUserAvgPrice(state.userAvgPrice);
     setUserProfit(state.userProfit);
-    setLastUpdate(state.lastUpdate);
     setTransactions(txs);
     setIsLoading(false);
+
+    // Initialize realtime prices with last 60 points from history
+    const now = Date.now();
+    const recentHistory = state.priceHistory.slice(-60).map((p, i) => ({
+      price: p.price,
+      time: now - (60 - i) * 1000,
+    }));
+    if (recentHistory.length > 0) {
+      setRealtimePrices(recentHistory);
+    }
   }, [period]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // Auto-refresh price every 30 seconds
+  // Real-time price updates every second
   useEffect(() => {
     const interval = setInterval(async () => {
-      const result = await updatePrice();
-      setCurrentPrice(result.price);
-      setTrend(result.trend);
-      if (result.event) {
-        setEvent(result.event);
-        setTimeout(() => setEvent(null), 5000);
-      }
-      setSecondsUntilUpdate(30);
-      loadData();
-    }, 30000);
+      try {
+        const result = await tickPrice();
+        
+        setCurrentPrice(result.price);
+        setTrend(result.trend);
+        setVolatility(result.volatility);
+        setMomentum(result.momentum);
+        setTrendDuration(result.trendDuration);
+        
+        if (result.event) {
+          setEvent(result.event);
+          setTimeout(() => setEvent(null), 5000);
+        }
 
-    const countdown = setInterval(() => {
-      setSecondsUntilUpdate(s => Math.max(0, s - 1));
+        // Add to realtime prices (keep last 120 points = 2 minutes)
+        setRealtimePrices(prev => {
+          const newPrices = [...prev, { price: result.price, time: Date.now() }];
+          return newPrices.slice(-120);
+        });
+
+        // Update profit
+        if (userAvgPrice !== null && userDC > 0) {
+          setUserProfit((result.price - userAvgPrice) * userDC);
+        }
+      } catch {
+        // Silently fail
+      }
     }, 1000);
 
-    return () => {
-      clearInterval(interval);
-      clearInterval(countdown);
-    };
+    return () => clearInterval(interval);
+  }, [userAvgPrice, userDC]);
+
+  // Reload full data every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData();
+    }, 30000);
+    return () => clearInterval(interval);
   }, [loadData]);
 
-  // Draw chart
+  // Draw chart with smooth animation
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || priceHistory.length < 2) return;
+    if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -113,13 +206,25 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
     ctx.fillStyle = "#0a0a0a";
     ctx.fillRect(0, 0, width, height);
 
-    // Find min/max
-    const prices = priceHistory.map(p => p.price);
-    const minPrice = Math.min(...prices) * 0.95;
-    const maxPrice = Math.max(...prices) * 1.05;
-    const priceRange = maxPrice - minPrice || 1;
+    // Use realtime prices for 1h view, historical for others
+    const dataToUse = period === "1h" && realtimePrices.length > 10 
+      ? realtimePrices.map(p => ({ price: p.price, createdAt: new Date(p.time) }))
+      : priceHistory;
 
-    // Draw grid lines
+    if (dataToUse.length < 2) {
+      ctx.fillStyle = "#666";
+      ctx.font = "12px JetBrains Mono";
+      ctx.textAlign = "center";
+      ctx.fillText("en attente de données...", width / 2, height / 2);
+      return;
+    }
+
+    const prices = dataToUse.map(p => p.price);
+    const minPrice = Math.min(...prices) * 0.98;
+    const maxPrice = Math.max(...prices) * 1.02;
+    const priceRange = maxPrice - minPrice || 0.01;
+
+    // Draw grid
     ctx.strokeStyle = "#222";
     ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
@@ -129,21 +234,50 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       ctx.lineTo(width - padding, y);
       ctx.stroke();
 
-      // Price labels
       const price = maxPrice - (priceRange * i / 4);
       ctx.fillStyle = "#666";
       ctx.font = "10px JetBrains Mono";
       ctx.textAlign = "right";
-      ctx.fillText(price.toFixed(2) + "€", padding - 5, y + 3);
+      ctx.fillText(price.toFixed(4) + "€", padding - 5, y + 3);
     }
 
+    // Draw gradient fill
+    const gradient = ctx.createLinearGradient(0, padding, 0, height - padding);
+    if (trend > 0.2) {
+      gradient.addColorStop(0, "rgba(74, 222, 128, 0.3)");
+      gradient.addColorStop(1, "rgba(74, 222, 128, 0)");
+    } else if (trend < -0.2) {
+      gradient.addColorStop(0, "rgba(248, 113, 113, 0.3)");
+      gradient.addColorStop(1, "rgba(248, 113, 113, 0)");
+    } else {
+      gradient.addColorStop(0, "rgba(136, 136, 136, 0.2)");
+      gradient.addColorStop(1, "rgba(136, 136, 136, 0)");
+    }
+
+    // Draw filled area
+    ctx.beginPath();
+    dataToUse.forEach((point, i) => {
+      const x = padding + (width - 2 * padding) * (i / (dataToUse.length - 1));
+      const y = padding + (height - 2 * padding) * (1 - (point.price - minPrice) / priceRange);
+      
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
+    ctx.lineTo(width - padding, height - padding);
+    ctx.lineTo(padding, height - padding);
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
     // Draw price line
-    ctx.strokeStyle = trend > 0 ? "#4ade80" : trend < 0 ? "#f87171" : "#888";
+    ctx.strokeStyle = trend > 0.2 ? "#4ade80" : trend < -0.2 ? "#f87171" : "#888";
     ctx.lineWidth = 2;
     ctx.beginPath();
-
-    priceHistory.forEach((point, i) => {
-      const x = padding + (width - 2 * padding) * (i / (priceHistory.length - 1));
+    dataToUse.forEach((point, i) => {
+      const x = padding + (width - 2 * padding) * (i / (dataToUse.length - 1));
       const y = padding + (height - 2 * padding) * (1 - (point.price - minPrice) / priceRange);
       
       if (i === 0) {
@@ -154,23 +288,30 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
     });
     ctx.stroke();
 
-    // Draw current price marker
-    const lastPoint = priceHistory[priceHistory.length - 1];
+    // Draw current price marker with glow
+    const lastPoint = dataToUse[dataToUse.length - 1];
     if (lastPoint) {
       const x = width - padding;
       const y = padding + (height - 2 * padding) * (1 - (lastPoint.price - minPrice) / priceRange);
       
-      ctx.fillStyle = trend > 0 ? "#4ade80" : trend < 0 ? "#f87171" : "#888";
+      // Glow effect
+      ctx.shadowColor = trend > 0.2 ? "#4ade80" : trend < -0.2 ? "#f87171" : "#888";
+      ctx.shadowBlur = 10;
+      
+      ctx.fillStyle = trend > 0.2 ? "#4ade80" : trend < -0.2 ? "#f87171" : "#888";
       ctx.beginPath();
-      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
       ctx.fill();
+      
+      ctx.shadowBlur = 0;
     }
 
-    // Draw avg buy price line if user has DC
+    // Draw avg buy price line
     if (userAvgPrice !== null && userAvgPrice >= minPrice && userAvgPrice <= maxPrice) {
       const y = padding + (height - 2 * padding) * (1 - (userAvgPrice - minPrice) / priceRange);
       ctx.strokeStyle = "#fbbf24";
       ctx.setLineDash([5, 5]);
+      ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(padding, y);
       ctx.lineTo(width - padding, y);
@@ -180,10 +321,10 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       ctx.fillStyle = "#fbbf24";
       ctx.font = "10px JetBrains Mono";
       ctx.textAlign = "left";
-      ctx.fillText("prix moyen: " + userAvgPrice.toFixed(4) + "€", padding + 5, y - 5);
+      ctx.fillText("achat: " + userAvgPrice.toFixed(4) + "€", padding + 5, y - 5);
     }
 
-  }, [priceHistory, trend, userAvgPrice]);
+  }, [priceHistory, realtimePrices, trend, userAvgPrice, period]);
 
   const handleTrade = async () => {
     if (isTrading || !tradeAmount) return;
@@ -210,6 +351,12 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
         : `vente de ${result.dcAmount?.toFixed(4)} DC pour ${result.euroAmount?.toFixed(2)}€`;
       setTradeResult({ success: true, message: msg });
       setTradeAmount("");
+      
+      // Update local state
+      if (result.newDCBalance !== undefined) {
+        setUserDC(result.newDCBalance);
+      }
+      
       loadData();
     } else {
       setTradeResult({ success: false, message: result.error || "erreur" });
@@ -218,16 +365,18 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
     setIsTrading(false);
   };
 
-  const getTrendIcon = () => {
-    if (trend > 0) return "↑";
-    if (trend < 0) return "↓";
-    return "→";
+  const getTrendDescription = () => {
+    if (trend > 0.7) return "bullish fort";
+    if (trend > 0.3) return "bullish";
+    if (trend < -0.7) return "bearish fort";
+    if (trend < -0.3) return "bearish";
+    return "neutre";
   };
 
-  const getTrendColor = () => {
-    if (trend > 0) return "text-green-400";
-    if (trend < 0) return "text-red-400";
-    return "text-gray-400";
+  const getVolatilityDescription = () => {
+    if (volatility > 1.5) return "haute";
+    if (volatility < 0.7) return "basse";
+    return "normale";
   };
 
   if (isLoading) {
@@ -256,7 +405,7 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
             ? "border-green-500 bg-green-500/10 text-green-400" 
             : "border-red-500 bg-red-500/10 text-red-400"
         }`}>
-          {event === "pump" ? "🚀 PUMP! +30% à +80%" : "📉 KRACH! -30% à -60%"}
+          {event === "pump" ? "🚀 PUMP!" : "📉 KRACH!"}
         </div>
       )}
 
@@ -265,13 +414,23 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-[var(--text-muted)] text-sm">prix actuel</p>
-            <p className={`text-3xl font-light ${getTrendColor()}`}>
-              {currentPrice.toFixed(4)}€ {getTrendIcon()}
-            </p>
+            <AnimatedPrice value={currentPrice} trend={trend} />
           </div>
-          <div className="text-right">
-            <p className="text-[var(--text-muted)] text-sm">mise à jour dans</p>
-            <p className="text-xl font-light">{secondsUntilUpdate}s</p>
+          <div className="text-right space-y-1">
+            <div className="flex items-center justify-end gap-2">
+              <span className="text-[var(--text-muted)] text-xs">tendance:</span>
+              <span className={`text-xs ${trend > 0.2 ? "text-green-400" : trend < -0.2 ? "text-red-400" : "text-gray-400"}`}>
+                {getTrendDescription()}
+              </span>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <span className="text-[var(--text-muted)] text-xs">volatilité:</span>
+              <span className="text-xs text-gray-400">{getVolatilityDescription()}</span>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <span className="text-[var(--text-muted)] text-xs">prochain changement:</span>
+              <span className="text-xs text-gray-400">{Math.max(0, Math.floor(trendDuration))}s</span>
+            </div>
           </div>
         </div>
 
@@ -290,6 +449,9 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
               {p}
             </button>
           ))}
+          <span className="ml-auto text-xs text-[var(--text-muted)] self-center">
+            {period === "1h" ? "temps réel" : "historique"}
+          </span>
         </div>
 
         {/* Chart */}
@@ -336,7 +498,6 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
       <div className="border border-[var(--line)] p-6 rounded">
         <h2 className="text-lg font-light mb-4">trader</h2>
         
-        {/* Mode selector */}
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setTradeMode("buy")}
@@ -389,7 +550,6 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
             </div>
           </div>
 
-          {/* Preview */}
           {tradeAmount && !isNaN(parseFloat(tradeAmount)) && (
             <p className="text-[var(--text-muted)] text-sm">
               {tradeMode === "buy"
@@ -448,9 +608,9 @@ export function DahkaCoinClient({ userId }: DahkaCoinClientProps) {
 
       {/* Info */}
       <div className="text-[var(--text-muted)] text-sm space-y-1">
-        <p>• le prix change toutes les 30 secondes</p>
-        <p>• variation normale: -5% à +5% + tendance</p>
-        <p>• 5% de chance de pump (+30% à +80%) ou krach (-30% à -60%)</p>
+        <p>• le prix fluctue chaque seconde avec des tendances réalistes</p>
+        <p>• les tendances durent 1 à 5 minutes puis changent</p>
+        <p>• événements rares: pump ou krach peuvent survenir</p>
         <p>• frais de vente: 2%</p>
         <p>• prix minimum: 0.10€ / maximum: 50€</p>
       </div>
