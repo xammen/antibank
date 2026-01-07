@@ -114,16 +114,25 @@ export function CrashBetPanel({
   const handleCashOut = () => {
     if (!userBet || isPending) return;
     
+    // Optimistic update - show success immediately
+    const estimatedProfit = (userBet.bet * currentMultiplier * 0.95) - userBet.bet;
+    setSuccess(`x${currentMultiplier.toFixed(2)} (+${estimatedProfit.toFixed(2)})`);
+    
+    // Update balance optimistically
+    const estimatedWin = userBet.bet + estimatedProfit;
+    const newBalance = parseFloat(userBalance) + estimatedWin;
+    setBalance(newBalance.toFixed(2));
+    
+    // Fire and forget - server will confirm
     startTransition(async () => {
       const result = await cashOutCrash();
-      if (result.success) {
-        setSuccess(`x${result.multiplier?.toFixed(2)} (+${result.profit?.toFixed(2)})`);
-        if (result.newBalance !== undefined) {
-          setBalance(result.newBalance.toFixed(2));
-        }
-      } else {
-        setError(result.error || "erreur");
+      if (!result.success) {
+        // Rollback on error
+        setError(result.error || "erreur cashout");
+        setSuccess(null);
+        setBalance(userBalance); // Reset to original
       }
+      // On success, the next poll will sync the real values
     });
   };
 
