@@ -221,50 +221,63 @@ export function VoiceStatus() {
         </div>
       </div>
 
-      {/* Session timer + Daily stats */}
-      <div className="flex items-center justify-between pt-2 border-t border-green-500/20">
+      {/* Stats grid */}
+      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-green-500/20">
         {/* Session actuelle */}
-        <div className="flex flex-col">
+        <div className="flex flex-col gap-1 p-2 rounded bg-[rgba(255,255,255,0.02)]">
           <span className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)]">
-            session
+            cette session
           </span>
-          <span className="text-[0.9rem] font-mono text-[var(--text)]">
-            ⏱️ {formatDuration(sessionTime)}
+          <span className="text-[1rem] font-mono text-[var(--text)]">
+            {formatDuration(sessionTime)}
           </span>
         </div>
 
-        {/* Stats aujourd'hui */}
-        <div className="flex flex-col items-end">
+        {/* Aujourd'hui */}
+        <div className="flex flex-col gap-1 p-2 rounded bg-[rgba(255,255,255,0.02)]">
           <span className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)]">
             aujourd'hui
           </span>
-          <span className="text-[0.8rem] text-[var(--text)]">
-            📊 {formatMinutes((status.dailyVoiceMinutes || 0))}
-            {(status.dailyBonus || 0) > 0 && (
-              <span className="text-green-400 ml-1">(+{status.dailyBonus?.toFixed(2)}€)</span>
-            )}
+          <span className="text-[1rem] font-mono text-[var(--text)]">
+            {formatMinutes((status.dailyVoiceMinutes || 0))}
           </span>
         </div>
       </div>
 
-      {/* Prochain palier + Streak */}
-      <div className="flex items-center justify-between text-[0.65rem]">
-        {/* Prochain palier */}
-        {status.nextTier && (
-          <div className="text-[var(--text-muted)]">
-            prochain bonus: {status.nextTier.label} → +{status.nextTier.bonus.toFixed(2)}€
+      {/* Progress bar vers prochain palier */}
+      {status.nextTier && (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between text-[0.65rem]">
+            <span className="text-[var(--text-muted)]">
+              {formatMinutes(status.dailyVoiceMinutes || 0)} / {status.nextTier.label}
+            </span>
+            <span className="text-green-400">
+              +{status.nextTier.bonus.toFixed(0)}€ bonus
+            </span>
           </div>
-        )}
+          <div className="h-1.5 bg-[rgba(255,255,255,0.1)] rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full transition-all duration-500"
+              style={{ 
+                width: `${Math.min(100, ((status.dailyVoiceMinutes || 0) / status.nextTier.minutes) * 100)}%` 
+              }}
+            />
+          </div>
+        </div>
+      )}
 
-        {/* Streak */}
+      {/* Bonus accumulés + Streak */}
+      <div className="flex items-center justify-between text-[0.7rem]">
+        {(status.dailyBonus || 0) > 0 && (
+          <span className="text-green-400">
+            💰 +{status.dailyBonus?.toFixed(2)}€ gagnés aujourd'hui
+          </span>
+        )}
+        
         {(status.voiceStreak || 0) >= 2 && (
-          <div className="flex items-center gap-1 text-orange-400">
-            <span>🔥</span>
-            <span>{status.voiceStreak}j streak</span>
-            {(status.streakBonus || 0) > 0 && (
-              <span className="text-[var(--text-muted)]">(+{status.streakBonus?.toFixed(2)}€)</span>
-            )}
-          </div>
+          <span className="text-orange-400">
+            🔥 {status.voiceStreak}j streak (+{status.streakBonus?.toFixed(0)}€)
+          </span>
         )}
       </div>
     </div>
