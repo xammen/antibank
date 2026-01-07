@@ -328,15 +328,31 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
     .slice(0, 4);
 
   return (
-    <div className="w-full max-w-[500px] space-y-6 animate-fade-in">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b border-[var(--line)] pb-4">
-        <Link href="/dashboard" className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-sm">
-          ← retour
-        </Link>
-        <h1 className="text-[0.85rem] uppercase tracking-widest">dahkacoin</h1>
-        <div className="w-16" />
-      </header>
+    <div className="w-full flex gap-8 animate-fade-in">
+      {/* Phase Guide - Left sidebar */}
+      <div className="hidden lg:block w-40 flex-shrink-0 text-[0.55rem] text-[var(--text-muted)] space-y-2 pt-12 opacity-50 hover:opacity-80 transition-opacity">
+        <p className="text-[var(--text)] text-[0.6rem] mb-3 uppercase tracking-widest">cycles</p>
+        <div className="space-y-2">
+          <p><span className="text-[var(--text)]">accumulation</span><br/>1-3min · calme, acheter</p>
+          <p><span className="text-green-400">hausse</span><br/>45s-1.5min · ça monte</p>
+          <p><span className="text-green-500">euphorie</span><br/>20-45s · moon, vendre vite</p>
+          <p><span className="text-orange-400">distribution</span><br/>1-2min · instable</p>
+          <p><span className="text-red-400">baisse</span><br/>1.5-2.5min · descente</p>
+          <p><span className="text-red-500">capitulation</span><br/>2-4min · panique, opportunité</p>
+          <p><span className="text-blue-400">récupération</span><br/>1.5-3min · ça repart</p>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="w-full max-w-[500px] space-y-6">
+        {/* Header */}
+        <header className="flex items-center justify-between border-b border-[var(--line)] pb-4">
+          <Link href="/dashboard" className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-sm">
+            ← retour
+          </Link>
+          <h1 className="text-[0.85rem] uppercase tracking-widest">dahkacoin</h1>
+          <div className="w-16" />
+        </header>
 
       {/* Event Banner */}
       {activeEvent !== 'none' && (
@@ -650,18 +666,6 @@ export function DahkaCoinClient({ userId }: { userId: string }) {
         )}
       </div>
 
-      {/* Phase Guide */}
-      <div className="text-[0.55rem] text-[var(--text-muted)] space-y-1 opacity-60">
-        <p className="text-[var(--text)] text-[0.6rem] mb-2">cycles du marché</p>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-          <p><span className="text-[var(--text)]">accumulation</span> 1-3min · calme, acheter</p>
-          <p><span className="text-green-400">hausse</span> 45s-1.5min · ça monte</p>
-          <p><span className="text-green-500">euphorie</span> 20-45s · moon, vendre vite</p>
-          <p><span className="text-orange-400">distribution</span> 1-2min · instable</p>
-          <p><span className="text-red-400">baisse</span> 1.5-2.5min · descente</p>
-          <p><span className="text-red-500">capitulation</span> 2-4min · panique, opportunité</p>
-          <p><span className="text-blue-400">récupération</span> 1.5-3min · ça repart</p>
-        </div>
       </div>
     </div>
   );
