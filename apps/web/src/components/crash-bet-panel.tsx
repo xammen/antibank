@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { placeCrashBet, getUserCrashHistory } from "@/actions/crash";
 import { useBalance } from "@/hooks/use-balance";
 
@@ -35,7 +35,7 @@ export function CrashBetPanel({
 }: CrashBetPanelProps) {
   const [betAmount, setBetAmount] = useState("1");
   const [autoCashoutAt, setAutoCashoutAt] = useState("");
-  const [isPending, startTransition] = useTransition();
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [betHistory, setBetHistory] = useState<BetHistoryEntry[]>([]);
@@ -99,23 +99,31 @@ export function CrashBetPanel({
       setError("montant invalide");
       return;
     }
+    
+    if (amount > parseFloat(userBalance)) {
+      setError("solde insuffisant");
+      return;
+    }
 
-    startTransition(async () => {
-      const result = await placeCrashBet(amount);
-      if (result.success) {
-        setSuccess("ok");
-        const newBalance = parseFloat(userBalance) - amount;
-        setBalance(newBalance.toFixed(2));
-      } else {
+    // Optimistic UI - instant feedback
+    setSuccess("ok");
+    const newBalance = parseFloat(userBalance) - amount;
+    setBalance(newBalance.toFixed(2));
+    
+    // Fire and forget - don't block UI
+    placeCrashBet(amount).then(result => {
+      if (!result.success) {
         setError(result.error || "erreur");
+        setSuccess(null);
+        setBalance(userBalance); // Rollback
       }
     });
   };
 
   const handleCashOut = () => {
-    if (!userBet || isPending) return;
+    if (!userBet) return;
     
-    // Optimistic update - show success immediately
+    // Optimistic update - INSTANT feedback
     const estimatedProfit = (userBet.bet * currentMultiplier * 0.95) - userBet.bet;
     setSuccess(`x${currentMultiplier.toFixed(2)} (+${estimatedProfit.toFixed(2)})`);
     
@@ -124,16 +132,13 @@ export function CrashBetPanel({
     const newBalance = parseFloat(userBalance) + estimatedWin;
     setBalance(newBalance.toFixed(2));
     
-    // Fire and forget - server will confirm
-    startTransition(async () => {
-      const result = await onCashOut();
+    // Fire and forget - don't block UI
+    onCashOut().then(result => {
       if (!result.success) {
-        // Rollback on error
         setError(result.error || "erreur cashout");
         setSuccess(null);
-        setBalance(userBalance); // Reset to original
+        setBalance(userBalance); // Rollback
       }
-      // On success, the next poll will sync the real values
     });
   };
 
@@ -212,12 +217,12 @@ export function CrashBetPanel({
           {/* Bet button */}
           <button
             onClick={handleBet}
-            disabled={isPending || gameState !== "waiting"}
+            disabled={isLoading || gameState !== "waiting"}
             className="w-full py-4 text-sm border border-[var(--text)] 
               hover:bg-[rgba(255,255,255,0.05)] transition-colors
               disabled:opacity-30 disabled:cursor-not-allowed uppercase tracking-widest"
           >
-            {isPending ? "..." : "parier"}
+            {isLoading ? "..." : "parier"}
           </button>
         </>
       )}
@@ -245,12 +250,12 @@ export function CrashBetPanel({
           
           <button
             onClick={handleCashOut}
-            disabled={isPending}
+            disabled={isLoading}
             className="w-full py-6 text-sm border-2 border-[var(--text)] 
               hover:bg-[var(--text)] hover:text-[var(--bg)] transition-colors
               disabled:opacity-30 disabled:cursor-not-allowed uppercase tracking-widest font-medium"
           >
-            {isPending ? "..." : "cashout"}
+            {isLoading ? "..." : "cashout"}
           </button>
         </div>
       )}

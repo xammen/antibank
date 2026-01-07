@@ -128,8 +128,8 @@ export function CrashGraph({ state, multiplier, crashPoint, countdown, startTime
       };
       const getX = (ratio: number) => padding.left + ratio * graphWidth;
       
-      // Calculate end point
-      const endMult = calculateMultiplier(totalTime);
+      // Calculate end point (use raw value for positioning)
+      const endMult = calculateMultiplier(totalTime, false);
       const endX = getX(1);
       const endY = Math.max(padding.top, Math.min(baseY, getY(endMult)));
 
@@ -145,8 +145,8 @@ export function CrashGraph({ state, multiplier, crashPoint, countdown, startTime
         fillGradient.addColorStop(1, "rgba(34, 197, 94, 0)");
       }
       
-      // High resolution curve - 1 point per 2 pixels
-      const steps = Math.max(100, Math.floor(graphWidth / 2));
+      // High resolution curve - use raw multiplier values (no rounding) for smooth curve
+      const steps = Math.max(150, Math.floor(graphWidth));
       
       // Fill
       ctx.fillStyle = fillGradient;
@@ -155,7 +155,7 @@ export function CrashGraph({ state, multiplier, crashPoint, countdown, startTime
       for (let i = 0; i <= steps; i++) {
         const ratio = i / steps;
         const t = ratio * totalTime;
-        const m = calculateMultiplier(t);
+        const m = calculateMultiplier(t, false); // false = no rounding for smooth curve
         const x = getX(ratio);
         const y = Math.max(padding.top, Math.min(baseY, getY(m)));
         ctx.lineTo(x, y);
@@ -166,9 +166,9 @@ export function CrashGraph({ state, multiplier, crashPoint, countdown, startTime
 
       // Stroke with glow
       ctx.shadowColor = primaryColor;
-      ctx.shadowBlur = 20;
+      ctx.shadowBlur = 15;
       ctx.strokeStyle = primaryColor;
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 3;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
 
@@ -177,7 +177,7 @@ export function CrashGraph({ state, multiplier, crashPoint, countdown, startTime
       for (let i = 0; i <= steps; i++) {
         const ratio = i / steps;
         const t = ratio * totalTime;
-        const m = calculateMultiplier(t);
+        const m = calculateMultiplier(t, false); // false = no rounding for smooth curve
         const x = getX(ratio);
         const y = Math.max(padding.top, Math.min(baseY, getY(m)));
         ctx.lineTo(x, y);

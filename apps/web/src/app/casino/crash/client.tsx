@@ -113,27 +113,30 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
             </div>
           </div>
 
-          {/* Side panel */}
-          <div className="w-full lg:w-72 border-t lg:border-t-0 lg:border-l border-[var(--line)] flex flex-col">
-            {/* Balance */}
-            <div className="p-4 border-b border-[var(--line)]">
+          {/* Side panel - Reorganized for clarity */}
+          <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-[var(--line)] flex flex-col bg-[#080808]">
+            
+            {/* Header: Balance + Game History inline */}
+            <div className="p-3 border-b border-[var(--line)] flex items-center justify-between gap-3">
               <Balance initialBalance={userBalance} />
+              {/* Compact history pills */}
+              <div className="hidden lg:flex gap-1 overflow-hidden">
+                {gameState.history.slice(0, 5).map((h) => (
+                  <span
+                    key={h.id}
+                    className={`text-[0.6rem] font-mono px-1.5 py-0.5 rounded ${
+                      h.crashPoint >= 5 ? "bg-green-500/20 text-green-400" : 
+                      h.crashPoint >= 2 ? "bg-yellow-500/20 text-yellow-400" : 
+                      "bg-red-500/20 text-red-400"
+                    }`}
+                  >
+                    {h.crashPoint.toFixed(2)}
+                  </span>
+                ))}
+              </div>
             </div>
 
-            {/* Skip Vote (only during waiting and if user has bet) */}
-            {gameState.state === "waiting" && userBet && gameState.countdown > 3 && (
-              <div className="p-3 border-b border-[var(--line)]">
-                <button
-                  onClick={voteSkip}
-                  className="w-full py-2 text-xs border border-[var(--line)] hover:border-[var(--text-muted)] 
-                    hover:bg-[rgba(255,255,255,0.03)] transition-colors"
-                >
-                  skip ({gameState.skipVotes}/{gameState.skipVotesNeeded})
-                </button>
-              </div>
-            )}
-
-            {/* Bet panel */}
+            {/* Bet panel - Main interaction area */}
             <div className="flex-1 overflow-auto">
               <CrashBetPanel
                 gameState={gameState.state}
@@ -142,90 +145,89 @@ export function CrashGameClient({ userId, userBalance, userName }: CrashGameClie
                 userBalance={userBalance}
                 onCashOut={cashOut}
               />
+              
+              {/* Skip Vote inline with bet panel */}
+              {gameState.state === "waiting" && userBet && gameState.countdown > 3 && (
+                <div className="px-4 pb-4">
+                  <button
+                    onClick={voteSkip}
+                    className="w-full py-2 text-xs border border-[var(--line)] hover:border-[var(--text-muted)] 
+                      hover:bg-[rgba(255,255,255,0.03)] transition-colors rounded"
+                  >
+                    skip ({gameState.skipVotes}/{gameState.skipVotesNeeded})
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* Players list */}
-            <div className="border-t border-[var(--line)] p-3 max-h-36 overflow-auto">
-              <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-2">
-                joueurs ({gameState.players.length})
-              </p>
-              <div className="flex flex-col gap-1">
-                {gameState.players.length === 0 && (
-                  <p className="text-xs text-[var(--text-muted)]">aucun</p>
-                )}
-                {gameState.players.map((player) => (
-                  <div
-                    key={player.odrzerId}
-                    className={`flex items-center justify-between text-xs px-2 py-1.5 border ${
-                      player.cashedOut 
-                        ? "border-green-500/30 bg-green-500/5" 
-                        : gameState.state === "crashed" 
-                          ? "border-red-500/30 bg-red-500/5"
-                          : "border-[var(--line)]"
-                    }`}
-                  >
-                    <span className="truncate max-w-[80px] text-[var(--text-muted)]">
-                      {player.odrzerame.toLowerCase()}
+            {/* Players + Stats combined section */}
+            <div className="border-t border-[var(--line)]">
+              {/* Players - horizontal compact view */}
+              {gameState.players.length > 0 && (
+                <div className="p-3 border-b border-[var(--line)]">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)]">
+                      joueurs
                     </span>
-                    <div className="flex items-center gap-2 tabular-nums">
-                      <span className="text-[var(--text-muted)]">{player.bet}€</span>
-                      {player.cashedOut && (
-                        <span className="text-green-400">
-                          x{player.cashOutMultiplier?.toFixed(2)}
-                        </span>
-                      )}
-                      {!player.cashedOut && gameState.state === "crashed" && (
-                        <span className="text-red-400">-</span>
-                      )}
+                    <span className="text-[0.6rem] text-[var(--text-muted)] opacity-50">
+                      {gameState.players.length}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {gameState.players.map((player) => (
+                      <div
+                        key={player.odrzerId}
+                        className={`text-[0.65rem] px-2 py-1 rounded flex items-center gap-1.5 ${
+                          player.cashedOut 
+                            ? "bg-green-500/10 text-green-400" 
+                            : gameState.state === "crashed" 
+                              ? "bg-red-500/10 text-red-400"
+                              : "bg-white/5 text-[var(--text-muted)]"
+                        }`}
+                      >
+                        <span className="truncate max-w-[60px]">{player.odrzerame.toLowerCase()}</span>
+                        <span className="font-mono opacity-70">{player.bet}€</span>
+                        {player.cashedOut && (
+                          <span className="font-mono font-medium">×{player.cashOutMultiplier?.toFixed(2)}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Stats footer - cleaner layout */}
+              <div className="p-3 text-[0.55rem] text-[var(--text-muted)]">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="uppercase tracking-widest opacity-60">probabilités</span>
+                  <span className="opacity-40">5% taxe</span>
+                </div>
+                <div className="flex gap-3 text-[0.6rem]">
+                  <div className="flex-1 space-y-0.5">
+                    <div className="flex justify-between">
+                      <span className="opacity-60">&lt;2×</span>
+                      <span>52%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="opacity-60">&lt;5×</span>
+                      <span>79%</span>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* History */}
-            {gameState.history.length > 0 && (
-              <div className="hidden lg:block border-t border-[var(--line)] max-h-40 overflow-y-auto">
-                <div className="p-2 border-b border-[var(--line)] sticky top-0 bg-[var(--bg)]">
-                  <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)]">historique</p>
-                </div>
-                <div className="divide-y divide-[var(--line)]">
-                  {gameState.history.map((h) => (
-                    <div 
-                      key={h.id} 
-                      className={`px-3 py-1.5 ${
-                        h.crashPoint >= 5 ? "bg-green-500/5" : 
-                        h.crashPoint >= 2 ? "bg-yellow-500/5" : 
-                        "bg-red-500/5"
-                      }`}
-                    >
-                      <span className={`text-sm font-mono tabular-nums ${
-                        h.crashPoint >= 5 ? "text-green-400" : 
-                        h.crashPoint >= 2 ? "text-yellow-400" : 
-                        "text-red-400"
-                      }`}>
-                        x{h.crashPoint.toFixed(2)}
-                      </span>
+                  <div className="w-px bg-[var(--line)]" />
+                  <div className="flex-1 space-y-0.5">
+                    <div className="flex justify-between">
+                      <span className="text-green-400/70">&gt;10×</span>
+                      <span className="text-green-400">11%</span>
                     </div>
-                  ))}
+                    <div className="flex justify-between">
+                      <span className="text-green-400/70">&gt;50×</span>
+                      <span className="text-green-400">2%</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            )}
-
-            {/* Stats & Rules */}
-            <div className="p-3 border-t border-[var(--line)] text-[0.55rem] text-[var(--text-muted)]">
-              <div className="flex items-center justify-between mb-2">
-                <span className="uppercase tracking-widest">stats</span>
-                <span className="text-[0.5rem]">5% taxe</span>
-              </div>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mb-2">
-                <span>~52% <span className="text-[var(--text)]">&lt;2x</span></span>
-                <span>~11% <span className="text-green-400">&gt;10x</span></span>
-                <span>~79% <span className="text-[var(--text)]">&lt;5x</span></span>
-                <span>~2% <span className="text-green-400">&gt;50x</span></span>
-              </div>
-              <div className="text-[0.5rem] opacity-60">
-                1% legendary (50-100x) · 2% epic (15-50x)
+                <div className="mt-2 pt-2 border-t border-[var(--line)] opacity-50 text-center">
+                  1% legendary · 2% epic
+                </div>
               </div>
             </div>
           </div>

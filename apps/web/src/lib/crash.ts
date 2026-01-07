@@ -85,8 +85,12 @@ export function isBigMultiplierEvent(gameNumber: number): boolean {
 /**
  * Calcule le multiplicateur actuel basé sur le temps écoulé
  * Le multiplicateur augmente de façon exponentielle
+ * 
+ * @param elapsedMs - Temps écoulé en ms
+ * @param forDisplay - Si true, arrondit à 2 décimales (pour affichage texte)
+ *                     Si false, retourne la valeur brute (pour graphique fluide)
  */
-export function calculateMultiplier(elapsedMs: number): number {
+export function calculateMultiplier(elapsedMs: number, forDisplay: boolean = true): number {
   // Toujours commencer à 1.00 minimum
   if (elapsedMs <= 0) return 1.00;
   
@@ -94,7 +98,12 @@ export function calculateMultiplier(elapsedMs: number): number {
   // x2 en ~5 secondes, x5 en ~10 secondes, x10 en ~15 secondes
   const growthRate = 0.00006; // Ajusté pour une bonne vitesse
   const multiplier = Math.pow(Math.E, growthRate * elapsedMs);
-  return Math.max(1.00, Math.floor(multiplier * 100) / 100);
+  
+  // Arrondir seulement pour l'affichage, pas pour le graphique
+  if (forDisplay) {
+    return Math.max(1.00, Math.floor(multiplier * 100) / 100);
+  }
+  return Math.max(1.00, multiplier);
 }
 
 /**
