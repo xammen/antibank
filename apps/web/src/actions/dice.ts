@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { prisma, Prisma } from "@antibank/db";
 import { rollDice, determineWinner, calculateDiceWinnings, DICE_CONFIG } from "@/lib/dice";
 import { revalidatePath } from "next/cache";
+import { addToAntibank } from "@/lib/antibank-corp";
 
 export interface CreateChallengeResult {
   success: boolean;
@@ -626,6 +627,19 @@ export async function playDiceVsBot(amount: number): Promise<PlayVsBotResult> {
   const winnings = calculateDiceWinnings(amount, result, true);
   const profit = winnings - amount;
 
+  // Calculer ce qui va à ANTIBANK (mise perdue ou frais d'égalité)
+  let antibankGain = 0;
+  if (result === "player2") {
+    // Le joueur a perdu - toute la mise va à ANTIBANK
+    antibankGain = amount;
+  } else if (result === "tie") {
+    // Égalité - les frais vont à ANTIBANK
+    antibankGain = amount * 0.05;
+  } else {
+    // Le joueur a gagné - juste les frais (5% du profit)
+    antibankGain = amount * 0.05;
+  }
+
   try {
     await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Déduire la mise
@@ -652,6 +666,11 @@ export async function playDiceVsBot(amount: number): Promise<PlayVsBotResult> {
         },
       });
     });
+
+    // Envoyer les gains à ANTIBANK
+    if (antibankGain > 0) {
+      addToAntibank(antibankGain, "dice vs bot").catch(() => {});
+    }
 
     revalidatePath("/casino/dice");
 

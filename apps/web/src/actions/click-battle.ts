@@ -207,8 +207,15 @@ export async function acceptClickBattle(battleId: string): Promise<BattleResult>
   };
 }
 
-// Démarrer le battle (les deux joueurs sont prêts)
-export async function startClickBattle(battleId: string): Promise<{ success: boolean; error?: string; startTime?: number }> {
+// Marquer un joueur comme prêt et démarrer quand les deux sont prêts
+export async function startClickBattle(battleId: string): Promise<{ 
+  success: boolean; 
+  error?: string; 
+  startTime?: number;
+  waiting?: boolean;
+  player1Ready?: boolean;
+  player2Ready?: boolean;
+}> {
   const session = await auth();
   if (!session?.user?.id) {
     return { success: false, error: "non connecte" };
@@ -220,8 +227,12 @@ export async function startClickBattle(battleId: string): Promise<{ success: boo
     player2Id: string;
     status: string;
     startedAt: Date | null;
+    player1Ready: boolean;
+    player2Ready: boolean;
   }>>`
-    SELECT id, "player1Id", "player2Id", status, "startedAt"
+    SELECT id, "player1Id", "player2Id", status, "startedAt", 
+           COALESCE("player1Ready", false) as "player1Ready",
+           COALESCE("player2Ready", false) as "player2Ready"
     FROM "ClickBattle"
     WHERE id = ${battleId}
   `;
@@ -239,16 +250,50 @@ export async function startClickBattle(battleId: string): Promise<{ success: boo
     return { success: false, error: "duel pas encore accepte" };
   }
 
-  // Démarrer si pas encore fait
-  if (!battle.startedAt) {
-    const now = new Date();
-    await prisma.$executeRaw`
-      UPDATE "ClickBattle" SET status = 'playing', "startedAt" = ${now} WHERE id = ${battleId} AND "startedAt" IS NULL
-    `;
-    return { success: true, startTime: now.getTime() };
+  // Si déjà démarré, retourner le startTime
+  if (battle.startedAt) {
+    return { success: true, startTime: battle.startedAt.getTime() };
   }
 
-  return { success: true, startTime: battle.startedAt.getTime() };
+  const isPlayer1 = battle.player1Id === session.user.id;
+
+  // Marquer ce joueur comme prêt
+  if (isPlayer1) {
+    await prisma.$executeRaw`
+      UPDATE "ClickBattle" SET "player1Ready" = true WHERE id = ${battleId}
+    `;
+  } else {
+    await prisma.$executeRaw`
+      UPDATE "ClickBattle" SET "player2Ready" = true WHERE id = ${battleId}
+    `;
+  }
+
+  // Vérifier si les deux sont maintenant prêts
+  const newPlayer1Ready = isPlayer1 ? true : battle.player1Ready;
+  const newPlayer2Ready = isPlayer1 ? battle.player2Ready : true;
+
+  if (newPlayer1Ready && newPlayer2Ready) {
+    // Les deux sont prêts - démarrer dans 3 secondes (countdown sync)
+    const countdownStart = new Date(Date.now() + 3000); // +3s pour le countdown
+    await prisma.$executeRaw`
+      UPDATE "ClickBattle" SET status = 'playing', "startedAt" = ${countdownStart} 
+      WHERE id = ${battleId} AND "startedAt" IS NULL
+    `;
+    return { 
+      success: true, 
+      startTime: countdownStart.getTime(),
+      player1Ready: true,
+      player2Ready: true
+    };
+  }
+
+  // Attendre l'autre joueur
+  return { 
+    success: true, 
+    waiting: true,
+    player1Ready: newPlayer1Ready,
+    player2Ready: newPlayer2Ready
+  };
 }
 
 // Soumettre les résultats
@@ -465,6 +510,8 @@ export async function getClickBattleState(battleId: string): Promise<{
     player2Clicks: number | null;
     winnerId: string | null;
     startedAt: number | null;
+    player1Ready: boolean;
+    player2Ready: boolean;
   };
 }> {
   const session = await auth();
@@ -485,11 +532,15 @@ export async function getClickBattleState(battleId: string): Promise<{
     player2Clicks: number | null;
     winnerId: string | null;
     startedAt: Date | null;
+    player1Ready: boolean;
+    player2Ready: boolean;
   }>>`
     SELECT b.id, b."player1Id", p1."discordUsername" as "player1Name",
            b."player2Id", p2."discordUsername" as "player2Name",
            b.amount::text, b.duration, b.status, b."player1Clicks", b."player2Clicks",
-           b."winnerId", b."startedAt"
+           b."winnerId", b."startedAt",
+           COALESCE(b."player1Ready", false) as "player1Ready",
+           COALESCE(b."player2Ready", false) as "player2Ready"
     FROM "ClickBattle" b
     JOIN "User" p1 ON b."player1Id" = p1.id
     JOIN "User" p2 ON b."player2Id" = p2.id

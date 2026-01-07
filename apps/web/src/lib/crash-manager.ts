@@ -392,11 +392,21 @@ class CrashGameManager {
         }
       });
 
+      // Calculer le total des pertes pour ANTIBANK CORP
+      let totalLosses = 0;
+      
       for (const bet of losingBets) {
+        const lossAmount = Number(bet.amount);
+        totalLosses += lossAmount;
         await prisma.crashBet.update({
           where: { id: bet.id },
-          data: { profit: new Prisma.Decimal(-Number(bet.amount)) }
+          data: { profit: new Prisma.Decimal(-lossAmount) }
         });
+      }
+
+      // Envoyer les pertes à ANTIBANK CORP
+      if (totalLosses > 0) {
+        addToAntibank(totalLosses, `crash game - ${losingBets.length} joueur(s) n'ont pas cashout`).catch(() => {});
       }
 
       return true;

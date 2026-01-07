@@ -470,6 +470,10 @@ model ClickBattle {
   amount       Decimal  @db.Decimal(10, 2) // Mise de chaque joueur
   duration     Int      @default(10) // Durée en secondes (10s par défaut)
   
+  // Ready states - les deux doivent cliquer "PRET" avant countdown
+  player1Ready   Boolean @default(false)
+  player2Ready   Boolean @default(false)
+  
   // Résultats (soumis à la fin)
   player1Clicks  Int?
   player2Clicks  Int?
