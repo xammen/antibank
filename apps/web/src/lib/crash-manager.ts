@@ -414,7 +414,9 @@ class CrashGameManager {
 
       // Envoyer les pertes à ANTIBANK CORP
       if (totalLosses > 0) {
-        addToAntibank(totalLosses, `crash game - ${losingBets.length} joueur(s) n'ont pas cashout`).catch(() => {});
+        addToAntibank(totalLosses, `crash game - ${losingBets.length} joueur(s) n'ont pas cashout`)
+          .then((newBalance) => console.log(`[ANTIBANK] +${totalLosses}€ crash losses, new balance: ${newBalance}€`))
+          .catch((err) => console.error(`[ANTIBANK] Error adding crash losses:`, err));
       }
 
       return true;
@@ -562,7 +564,9 @@ class CrashGameManager {
     
     // Envoyer la taxe à ANTIBANK CORP
     if (tax > 0) {
-      addToAntibank(tax, "taxe crash game").catch(() => {});
+      addToAntibank(tax, "taxe crash game")
+        .then((newBalance) => console.log(`[ANTIBANK] +${tax}€ crash tax, new balance: ${newBalance}€`))
+        .catch((err) => console.error(`[ANTIBANK] Error adding crash tax:`, err));
     }
 
     // Mise à jour atomique

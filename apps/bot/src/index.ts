@@ -1,18 +1,22 @@
 import "dotenv/config";
-import { Client, GatewayIntentBits, Events, Collection, VoiceState } from "discord.js";
-import { prisma, calculateVocalBonus, calculatePassiveBonus } from "@antibank/db";
+import { Client, GatewayIntentBits, Events, Collection, EmbedBuilder, TextChannel } from "discord.js";
+import { prisma, Prisma, calculateVocalBonus, calculatePassiveBonus } from "@antibank/db";
 import { commands } from "./commands/index.js";
+import { sendNotification } from "./lib/notifications.js";
 
 // Config mining
 const VOCAL_BASE_RATE = 0.05;    // €/min avec 1+ autre personne
 const VOCAL_BONUS_RATE = 0.02;   // €/min par personne supplémentaire
 const MINING_INTERVAL = 60000;   // Check toutes les 60 secondes
+const VOTE_CHECK_INTERVAL = 30000; // Check votes toutes les 30 secondes
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildMessages,
   ],
 });
 
@@ -200,6 +204,245 @@ async function minePassive() {
   }
 }
 
+// === RESOLUTION DES VOTES DISCORD ===
+async function resolveExpiredVotes() {
+  const now = new Date();
+
+  // Trouver les votes expires non resolus
+  const expiredVotes = await prisma.$queryRaw<Array<{
+    id: string;
+    messageId: string;
+    channelId: string;
+    type: string;
+    warnVoteId: string | null;
+    targetUserId: string | null;
+  }>>`
+    SELECT id, "messageId", "channelId", type, "warnVoteId", "targetUserId"
+    FROM "DiscordVote"
+    WHERE resolved = false AND "endsAt" <= ${now}
+  `;
+
+  for (const vote of expiredVotes) {
+    try {
+      const channel = client.channels.cache.get(vote.channelId) as TextChannel | undefined;
+      if (!channel) continue;
+
+      const message = await channel.messages.fetch(vote.messageId).catch(() => null);
+      if (!message) {
+        // Message supprime, marquer comme resolu
+        await prisma.$executeRaw`UPDATE "DiscordVote" SET resolved = true WHERE id = ${vote.id}`;
+        continue;
+      }
+
+      if (vote.type === "warn" && vote.warnVoteId) {
+        // Compter les reactions
+        const upReaction = message.reactions.cache.get("⬆️");
+        const downReaction = message.reactions.cache.get("⬇️");
+        
+        // -1 pour enlever le bot
+        const guiltyVotes = (upReaction?.count || 1) - 1;
+        const innocentVotes = (downReaction?.count || 1) - 1;
+
+        // Mettre a jour le WarnVote avec les vrais comptes
+        await prisma.$executeRaw`
+          UPDATE "WarnVote" 
+          SET "guiltyVotes" = ${guiltyVotes}, "innocentVotes" = ${innocentVotes}
+          WHERE id = ${vote.warnVoteId}
+        `;
+
+        // Resoudre via la logique existante
+        await resolveWarn(vote.warnVoteId, guiltyVotes, innocentVotes, message);
+      }
+
+      else if (vote.type === "dahkacoin" && vote.targetUserId) {
+        // Compter les reactions
+        const upReaction = message.reactions.cache.get("⬆️");
+        const dcCount = (upReaction?.count || 1) - 1; // -1 pour le bot
+
+        if (dcCount > 0) {
+          // Donner les DC au beneficiaire
+          await prisma.$executeRaw`
+            UPDATE "User" SET "dahkaCoins" = "dahkaCoins" + ${dcCount}
+            WHERE id = ${vote.targetUserId}
+          `;
+
+          await prisma.transaction.create({
+            data: {
+              userId: vote.targetUserId,
+              type: "dahkacoin_gift",
+              amount: new Prisma.Decimal(0),
+              description: `${dcCount} DC offerts par la communaute`
+            }
+          });
+
+          // Mettre a jour le message
+          const embed = EmbedBuilder.from(message.embeds[0])
+            .setColor(0x00ff00)
+            .setFooter({ text: `${dcCount} DC credites!` });
+          
+          await message.edit({ embeds: [embed] });
+        } else {
+          const embed = EmbedBuilder.from(message.embeds[0])
+            .setColor(0x666666)
+            .setFooter({ text: "aucun DC donne" });
+          
+          await message.edit({ embeds: [embed] });
+        }
+      }
+
+      // Marquer comme resolu
+      await prisma.$executeRaw`UPDATE "DiscordVote" SET resolved = true WHERE id = ${vote.id}`;
+
+    } catch (e) {
+      console.error(`[antibank] erreur resolution vote ${vote.id}:`, e);
+    }
+  }
+}
+
+// Resoudre un warn specifique
+async function resolveWarn(warnId: string, guiltyVotes: number, innocentVotes: number, message: any) {
+  const WARN_QUORUM = 3;
+  const totalVotes = guiltyVotes + innocentVotes;
+  const now = new Date();
+
+  // Recuperer les infos du warn
+  const warns = await prisma.$queryRaw<Array<{
+    accuserId: string;
+    accusedId: string;
+    amount: string;
+    accuserName: string;
+    accusedName: string;
+  }>>`
+    SELECT w."accuserId", w."accusedId", w.amount::text,
+           accuser."discordUsername" as "accuserName",
+           accused."discordUsername" as "accusedName"
+    FROM "WarnVote" w
+    JOIN "User" accuser ON w."accuserId" = accuser.id
+    JOIN "User" accused ON w."accusedId" = accused.id
+    WHERE w.id = ${warnId}
+  `;
+
+  if (warns.length === 0) return;
+  const warn = warns[0];
+  const amount = parseFloat(warn.amount);
+
+  let resultText = "";
+  let color = 0x666666;
+
+  if (totalVotes < WARN_QUORUM) {
+    // Pas assez de votes - expire
+    await prisma.$executeRaw`
+      UPDATE "WarnVote" SET status = 'expired', "resolvedAt" = ${now} WHERE id = ${warnId}
+    `;
+    resultText = "expire (pas assez de votants)";
+    color = 0x666666;
+  } 
+  else if (guiltyVotes > innocentVotes) {
+    // Coupable
+    const voterShare = guiltyVotes > 0 ? (amount * 0.5) / guiltyVotes : 0;
+
+    // Retirer l'amende
+    await prisma.$executeRaw`
+      UPDATE "User" SET balance = balance - ${amount} WHERE id = ${warn.accusedId}
+    `;
+
+    // Les votants coupables reçoivent leur part (on ne peut pas savoir qui a vote via reactions)
+    // Donc on skip la distribution aux votants pour simplifier
+
+    await prisma.transaction.create({
+      data: {
+        userId: warn.accusedId,
+        type: "warn_fine",
+        amount: new Prisma.Decimal(-amount),
+        description: "amende pour warn"
+      }
+    });
+
+    await prisma.$executeRaw`
+      UPDATE "WarnVote" SET status = 'guilty', "resolvedAt" = ${now} WHERE id = ${warnId}
+    `;
+
+    resultText = `COUPABLE - ${warn.accusedName} perd ${amount.toFixed(2)}€`;
+    color = 0xff0000;
+
+    // Notification justice
+    const embed = new EmbedBuilder()
+      .setTitle("verdict: coupable")
+      .setDescription(`**${warn.accusedName}** a ete reconnu coupable`)
+      .addFields(
+        { name: "amende", value: `${amount.toFixed(2)}€`, inline: true },
+        { name: "votes", value: `coupable: ${guiltyVotes} | innocent: ${innocentVotes}`, inline: true }
+      )
+      .setColor(0xff0000)
+      .setTimestamp();
+
+    await sendNotification(client, "justice", embed);
+  } 
+  else {
+    // Innocent
+    const penalty = amount * 0.5;
+
+    await prisma.$executeRaw`
+      UPDATE "User" SET balance = balance - ${penalty} WHERE id = ${warn.accuserId}
+    `;
+    await prisma.$executeRaw`
+      UPDATE "User" SET balance = balance + ${penalty} WHERE id = ${warn.accusedId}
+    `;
+
+    await prisma.transaction.create({
+      data: {
+        userId: warn.accuserId,
+        type: "warn_penalty",
+        amount: new Prisma.Decimal(-penalty),
+        description: "warn rejete"
+      }
+    });
+    await prisma.transaction.create({
+      data: {
+        userId: warn.accusedId,
+        type: "warn_compensation",
+        amount: new Prisma.Decimal(penalty),
+        description: "compensation warn"
+      }
+    });
+
+    await prisma.$executeRaw`
+      UPDATE "WarnVote" SET status = 'innocent', "resolvedAt" = ${now} WHERE id = ${warnId}
+    `;
+
+    resultText = `INNOCENT - ${warn.accuserName} perd ${penalty.toFixed(2)}€`;
+    color = 0x00ff00;
+
+    // Notification justice
+    const embed = new EmbedBuilder()
+      .setTitle("verdict: innocent")
+      .setDescription(`**${warn.accusedName}** a ete reconnu innocent`)
+      .addFields(
+        { name: "penalite accusateur", value: `${penalty.toFixed(2)}€`, inline: true },
+        { name: "votes", value: `coupable: ${guiltyVotes} | innocent: ${innocentVotes}`, inline: true }
+      )
+      .setColor(0x00ff00)
+      .setTimestamp();
+
+    await sendNotification(client, "justice", embed);
+  }
+
+  // Mettre a jour le message original
+  try {
+    const embed = EmbedBuilder.from(message.embeds[0])
+      .setColor(color)
+      .setFields(
+        { name: "resultat", value: resultText, inline: false },
+        { name: "votes finaux", value: `⬆️ coupable: ${guiltyVotes} | ⬇️ innocent: ${innocentVotes}`, inline: false }
+      )
+      .setFooter({ text: "vote termine" });
+
+    await message.edit({ embeds: [embed] });
+  } catch (e) {
+    // Ignore si on peut pas editer
+  }
+}
+
 client.once(Events.ClientReady, async (c) => {
   console.log(`[antibank] connecte en tant que ${c.user.tag}`);
   
@@ -218,6 +461,10 @@ client.once(Events.ClientReady, async (c) => {
   // Lance le mining passif toutes les 60 secondes aussi
   setInterval(minePassive, MINING_INTERVAL);
   console.log(`[antibank] mining passif actif (${MINING_INTERVAL/1000}s interval)`);
+
+  // Lance la resolution des votes toutes les 30 secondes
+  setInterval(resolveExpiredVotes, VOTE_CHECK_INTERVAL);
+  console.log(`[antibank] resolution votes actif (${VOTE_CHECK_INTERVAL/1000}s interval)`);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

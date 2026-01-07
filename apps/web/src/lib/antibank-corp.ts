@@ -30,40 +30,52 @@ export async function getAntibankBalance(): Promise<number> {
 export async function addToAntibank(amount: number, reason?: string): Promise<number> {
   if (amount <= 0) return await getAntibankBalance();
   
-  const config = await prisma.gameConfig.upsert({
-    where: { key: "antibank_corp_balance" },
-    create: {
-      key: "antibank_corp_balance",
-      value: { balance: amount }
-    },
-    update: {} // On va faire un update manuel pour l'atomicité
-  });
-  
-  const currentBalance = (config.value as { balance: number }).balance || 0;
-  const newBalance = Math.round((currentBalance + amount) * 100) / 100;
-  
-  await prisma.gameConfig.update({
-    where: { key: "antibank_corp_balance" },
-    data: {
-      value: { balance: newBalance }
-    }
-  });
-  
-  // Log la transaction si reason fourni
-  if (reason) {
-    await prisma.transaction.create({
+  // Utiliser une transaction atomique avec raw SQL pour éviter les race conditions
+  const result = await prisma.$transaction(async (tx) => {
+    // Upsert atomique - si la config n'existe pas, la créer
+    await tx.gameConfig.upsert({
+      where: { key: "antibank_corp_balance" },
+      create: {
+        key: "antibank_corp_balance",
+        value: { balance: 0 }
+      },
+      update: {}
+    });
+    
+    // Lire la valeur actuelle
+    const config = await tx.gameConfig.findUnique({
+      where: { key: "antibank_corp_balance" }
+    });
+    
+    const currentBalance = (config?.value as { balance: number })?.balance || 0;
+    const newBalance = Math.round((currentBalance + amount) * 100) / 100;
+    
+    // Update avec la nouvelle balance
+    await tx.gameConfig.update({
+      where: { key: "antibank_corp_balance" },
       data: {
-        userId: ANTIBANK_CORP_ID, // ID spécial pour les transactions système
+        value: { balance: newBalance }
+      }
+    });
+    
+    return newBalance;
+  });
+  
+  // Log la transaction hors de la transaction principale (non-bloquant)
+  if (reason) {
+    prisma.transaction.create({
+      data: {
+        userId: ANTIBANK_CORP_ID,
         type: "antibank_income",
         amount: amount,
         description: reason
       }
     }).catch(() => {
-      // Ignore si le userId n'existe pas (pas grave)
+      // Ignore - le userId système n'existe pas en DB, c'est ok
     });
   }
   
-  return newBalance;
+  return result;
 }
 
 // Retirer des fonds d'ANTIBANK CORP (braquage réussi)

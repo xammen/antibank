@@ -496,6 +496,43 @@ model ClickBattle {
 }
 
 // ============================================
+// BOT CONFIG - Channels & Settings
+// ============================================
+
+model BotConfig {
+  key       String   @id // "channel_braquages", "channel_justice", "channel_casino", "channel_leaderboard"
+  value     String   // Channel ID
+  guildId   String
+  updatedAt DateTime @updatedAt
+}
+
+// Votes Discord actifs (pour tracker les messages avec réactions)
+model DiscordVote {
+  id            String   @id @default(cuid())
+  
+  messageId     String   @unique // ID du message Discord
+  channelId     String
+  guildId       String
+  
+  type          String   // "warn", "dahkacoin"
+  
+  // Pour les warns - lié au WarnVote
+  warnVoteId    String?  @unique
+  
+  // Pour dahkacoin gifts
+  targetUserId  String?  // User qui recevra les DC
+  creatorId     String   // User qui a créé le vote
+  
+  endsAt        DateTime
+  resolved      Boolean  @default(false)
+  
+  createdAt     DateTime @default(now())
+
+  @@index([messageId])
+  @@index([resolved, endsAt])
+}
+
+// ============================================
 // PHASE 5: DAHKACOIN (Crypto Fictive)
 // ============================================
 
