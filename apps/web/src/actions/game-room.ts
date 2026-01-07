@@ -884,3 +884,137 @@ export async function getMyActiveRoom(): Promise<{
 
   return { success: true, room: toPublicRoom(player.room) };
 }
+
+// ============================================
+// REMATCH - Créer une nouvelle partie avec les mêmes joueurs
+// ============================================
+export async function rematchRoom(
+  oldRoomId: string
+): Promise<{ success: boolean; room?: GameRoomPublic; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "non connecté" };
+  }
+
+  const userId = session.user.id;
+
+  // Récupérer l'ancienne room
+  const oldRoom = await prisma.gameRoom.findUnique({
+    where: { id: oldRoomId },
+    include: { players: true },
+  });
+
+  if (!oldRoom) {
+    return { success: false, error: "room introuvable" };
+  }
+
+  if (oldRoom.status !== "finished") {
+    return { success: false, error: "la partie n'est pas terminée" };
+  }
+
+  // Vérifier que l'utilisateur était dans la room
+  const wasInRoom = oldRoom.players.some(p => p.userId === userId);
+  if (!wasInRoom) {
+    return { success: false, error: "tu n'étais pas dans cette room" };
+  }
+
+  // Vérifier le solde
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { balance: true, discordUsername: true },
+  });
+
+  if (!user) {
+    return { success: false, error: "utilisateur introuvable" };
+  }
+
+  const amount = Number(oldRoom.amount);
+  if (Number(user.balance) < amount) {
+    return { success: false, error: "solde insuffisant" };
+  }
+
+  // Créer la nouvelle room avec les mêmes paramètres
+  const newRoom = await prisma.$transaction(async (tx) => {
+    // Déduire la mise du créateur
+    await tx.user.update({
+      where: { id: userId },
+      data: { balance: { decrement: amount } },
+    });
+
+    // Créer la room
+    const room = await tx.gameRoom.create({
+      data: {
+        gameType: oldRoom.gameType as GameType,
+        amount: new Decimal(amount),
+        minPlayers: 2,
+        maxPlayers: oldRoom.players.length,
+        hostId: userId,
+        code: generateRoomCode(),
+        status: "waiting",
+        expiresAt: new Date(Date.now() + ROOM_EXPIRE_MINUTES * 60 * 1000),
+        players: {
+          create: {
+            userId,
+            username: user.discordUsername,
+            isReady: true,
+          },
+        },
+      },
+      include: { players: true },
+    });
+
+    // Transaction log
+    await tx.transaction.create({
+      data: {
+        userId,
+        type: "game_room_join",
+        amount: new Decimal(-amount),
+        description: `Rematch ${oldRoom.gameType} #${room.id.slice(-6)}`,
+      },
+    });
+
+    return room;
+  });
+
+  return { success: true, room: toPublicRoom(newRoom) };
+}
+
+// ============================================
+// GET REMATCH INFO - Récupérer les infos pour proposer un rematch
+// ============================================
+export async function getRematchInfo(roomId: string): Promise<{
+  success: boolean;
+  opponents?: { odrzerId: string; username: string }[];
+  gameType?: GameType;
+  amount?: number;
+  code?: string;
+}> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false };
+  }
+
+  const room = await prisma.gameRoom.findUnique({
+    where: { id: roomId },
+    include: { players: true },
+  });
+
+  if (!room || room.status !== "finished") {
+    return { success: false };
+  }
+
+  // Récupérer les adversaires (tous sauf moi)
+  const opponents = room.players
+    .filter(p => p.userId !== session.user!.id)
+    .map(p => ({
+      odrzerId: p.userId,
+      username: p.username,
+    }));
+
+  return {
+    success: true,
+    opponents,
+    gameType: room.gameType as GameType,
+    amount: Number(room.amount),
+  };
+}

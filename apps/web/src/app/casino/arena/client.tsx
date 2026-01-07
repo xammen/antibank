@@ -13,6 +13,7 @@ import {
   checkAndStartGame,
   submitPFCChoice,
   getMyActiveRoom,
+  rematchRoom,
   type GameType,
   type GameRoomPublic,
 } from "@/actions/game-room";
@@ -664,18 +665,39 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
             {/* Actions */}
             <div className="flex gap-2 pt-4 border-t border-[var(--line)]">
               {currentRoom.status === "finished" && animationComplete && (
-                <button
-                  onClick={() => {
-                    setCurrentRoom(null);
-                    setView("lobby");
-                    resetAnimationState();
-                    loadRooms();
-                  }}
-                  className="flex-1 py-2 text-sm border border-[var(--line)] hover:border-[var(--text-muted)] 
-                    hover:bg-[rgba(255,255,255,0.03)] transition-colors"
-                >
-                  retour au lobby
-                </button>
+                <>
+                  <button
+                    onClick={async () => {
+                      setLoading(true);
+                      setError(null);
+                      const res = await rematchRoom(currentRoom.id);
+                      if (res.success && res.room) {
+                        resetAnimationState();
+                        setCurrentRoom(res.room);
+                      } else {
+                        setError(res.error || "erreur rematch");
+                      }
+                      setLoading(false);
+                    }}
+                    disabled={loading || userBalance < currentRoom.amount}
+                    className="flex-1 py-2 text-sm border border-[var(--text)] hover:bg-[rgba(255,255,255,0.05)] 
+                      transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    {loading ? "..." : `rejouer (${currentRoom.amount}€)`}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setCurrentRoom(null);
+                      setView("lobby");
+                      resetAnimationState();
+                      loadRooms();
+                    }}
+                    className="px-4 py-2 text-sm border border-[var(--line)] hover:border-[var(--text-muted)] 
+                      hover:bg-[rgba(255,255,255,0.03)] transition-colors"
+                  >
+                    lobby
+                  </button>
+                </>
               )}
               {["waiting", "countdown"].includes(currentRoom.status) && (
                 <>
