@@ -459,6 +459,14 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
           <h1 className="text-[0.85rem] uppercase tracking-widest">braquages</h1>
         </header>
 
+      {/* Practice Button */}
+      <button
+        onClick={() => setShowPracticePicker(true)}
+        className="w-full py-3 text-[0.75rem] uppercase tracking-widest border border-yellow-500/30 text-yellow-400 hover:border-yellow-500 hover:bg-yellow-500/10 transition-all"
+      >
+        s'entrainer
+      </button>
+
       {/* Cooldown Status */}
       {!canRob && cooldownDisplay && (
         <div className="text-center p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
@@ -714,26 +722,17 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
         )}
       </section>
 
-      {/* Practice Button + Info */}
-      <div className="flex flex-col gap-3">
-        <button
-          onClick={() => setShowPracticePicker(true)}
-          className="w-full py-3 text-[0.75rem] uppercase tracking-widest border border-yellow-500/30 text-yellow-400 hover:border-yellow-500 hover:bg-yellow-500/10 transition-all"
-        >
-          s'entrainer
-        </button>
-        
-        <div className="text-center p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
-          <p className="text-[0.7rem] text-[var(--text-muted)]">
-            complete le mini-jeu breach pour reussir le braquage
-            <br />
-            0 sequence = echec | 1+ sequences = succes
-            <br />
-            plus de sequences = plus de butin (jusqu'a +10%)
-            <br />
-            <span className="text-yellow-400">beta: cooldown 2 min</span>
-          </p>
-        </div>
+      {/* Info */}
+      <div className="text-center p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
+        <p className="text-[0.7rem] text-[var(--text-muted)]">
+          complete le mini-jeu breach pour reussir le braquage
+          <br />
+          0 sequence = echec | 1+ sequences = succes
+          <br />
+          plus de sequences = plus de butin (jusqu'a +10%)
+          <br />
+          <span className="text-yellow-400">beta: cooldown 2 min</span>
+        </p>
       </div>
 
       {/* OPERATION ANTIBANK - En bas de page */}

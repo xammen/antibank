@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { placeCrashBet, getUserCrashHistory } from "@/actions/crash";
+import { placeCrashBet } from "@/actions/crash";
 import { useBalance } from "@/hooks/use-balance";
 
 interface CrashBetPanelProps {
@@ -16,14 +16,6 @@ interface CrashBetPanelProps {
   currentMultiplier: number;
   userBalance: string;
   onCashOut: () => Promise<{ success: boolean; multiplier?: number; profit?: number; newBalance?: number; error?: string }>;
-}
-
-interface BetHistoryEntry {
-  crashPoint: number;
-  bet: number;
-  cashOutAt: number | null;
-  profit: number;
-  createdAt: Date;
 }
 
 // Couleur dynamique pour le bouton cashout basée sur le multiplicateur
@@ -51,8 +43,6 @@ export function CrashBetPanel({
   const [betAmount, setBetAmount] = useState("1");
   const [autoCashoutAt, setAutoCashoutAt] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [betHistory, setBetHistory] = useState<BetHistoryEntry[]>([]);
   const { setBalance } = useBalance(userBalance);
   const autoCashoutTriggered = useRef(false);
   const lastGameStateRef = useRef(gameState);
@@ -90,19 +80,10 @@ export function CrashBetPanel({
     profit: userBet.profit || 0 
   } : null);
 
-  // Load bet history on mount and when game crashes (not on every state change)
+  // Track game state transitions
   useEffect(() => {
-    // Only load when transitioning TO crashed state
-    if (gameState === "crashed" && lastGameStateRef.current !== "crashed") {
-      getUserCrashHistory().then(setBetHistory);
-    }
     lastGameStateRef.current = gameState;
   }, [gameState]);
-  
-  // Initial load
-  useEffect(() => {
-    getUserCrashHistory().then(setBetHistory);
-  }, []);
 
   // Auto-cashout logic
   useEffect(() => {
@@ -133,7 +114,6 @@ export function CrashBetPanel({
   useEffect(() => {
     if (gameState === "waiting") {
       setError(null);
-      setSuccess(null);
     }
   }, [gameState]);
 
@@ -141,7 +121,6 @@ export function CrashBetPanel({
     if (isBetting) return; // Prevent double-click
     
     setError(null);
-    setSuccess(null);
     
     const amount = parseFloat(betAmount);
     if (isNaN(amount) || amount <= 0) {
@@ -211,15 +190,10 @@ export function CrashBetPanel({
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      {/* Messages */}
+      {/* Error message */}
       {error && (
-        <div className="p-2 text-xs text-red-400 border border-red-400/30 text-center">
+        <div className="p-2 text-xs text-red-400 border border-red-400/30 text-center animate-loss">
           {error}
-        </div>
-      )}
-      {success && (
-        <div className="p-2 text-xs text-green-400 border border-green-400/30 text-center">
-          {success}
         </div>
       )}
 
