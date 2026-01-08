@@ -138,11 +138,34 @@ export function validateBet(amount: number, balance: number): { valid: boolean; 
 
 /**
  * Calcule le gain avec la taxe maison
+ * FORMULE UNIQUE utilisée côté client ET serveur pour garantir la cohérence
+ * 
+ * @returns { grossWin, tax, profit, netWin }
+ * - grossWin: mise * multiplicateur (gain brut)
+ * - tax: 5% du profit brut (pour la maison)
+ * - profit: gain net après taxe (peut être négatif si crash)
+ * - netWin: mise + profit (montant total retourné au joueur)
+ */
+export function calculateCrashProfit(bet: number, multiplier: number): {
+  grossWin: number;
+  tax: number;
+  profit: number;
+  netWin: number;
+} {
+  const grossWin = bet * multiplier;
+  const grossProfit = grossWin - bet;
+  const tax = Math.floor(grossProfit * HOUSE_EDGE * 100) / 100;
+  const profit = Math.floor((grossProfit - tax) * 100) / 100;
+  const netWin = bet + profit;
+  
+  return { grossWin, tax, profit, netWin };
+}
+
+/**
+ * Calcule le gain avec la taxe maison (version simple pour rétro-compatibilité)
  */
 export function calculateWinnings(bet: number, multiplier: number): number {
-  const grossWin = bet * multiplier;
-  const tax = (grossWin - bet) * HOUSE_EDGE;
-  return Math.floor((grossWin - tax) * 100) / 100;
+  return calculateCrashProfit(bet, multiplier).netWin;
 }
 
 /**

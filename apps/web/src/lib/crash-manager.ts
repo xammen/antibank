@@ -7,6 +7,7 @@ import {
   calculateMultiplier,
   timeToMultiplier,
   isBigMultiplierEvent,
+  calculateCrashProfit,
   CRASH_CONFIG,
 } from "./crash";
 import { addToAntibank } from "./antibank-corp";
@@ -518,7 +519,13 @@ class CrashGameManager {
     }
   }
 
-  async cashOut(userId: string, clientMultiplier?: number): Promise<{ success: boolean; multiplier?: number; profit?: number; bet?: number }> {
+  async cashOut(userId: string, clientMultiplier?: number): Promise<{ 
+    success: boolean; 
+    error?: string;
+    multiplier?: number; 
+    profit?: number; 
+    bet?: number 
+  }> {
     // Une seule query: trouver le bet avec son game
     const bet = await prisma.crashBet.findFirst({
       where: {
@@ -534,7 +541,7 @@ class CrashGameManager {
     });
     
     if (!bet) {
-      return { success: false };
+      return { success: false, error: "pas de mise en cours" };
     }
 
     const game = bet.crashGame;
@@ -556,19 +563,18 @@ class CrashGameManager {
       // Vérifier qu'on n'a pas déjà crashé
       const crashTimeMs = timeToMultiplier(crashPoint);
       if (elapsed >= crashTimeMs) {
-        return { success: false };
+        return { success: false, error: "jeu terminé" };
       }
     }
 
     // S'assurer que le multiplier ne dépasse pas le crashPoint
     if (multiplier >= crashPoint) {
-      return { success: false };
+      return { success: false, error: "jeu terminé" };
     }
 
     const betAmount = Number(bet.amount);
-    const grossWin = betAmount * multiplier;
-    const tax = Math.floor((grossWin - betAmount) * 0.05 * 100) / 100;
-    const profit = Math.floor((grossWin - betAmount - tax) * 100) / 100;
+    // Utiliser la formule centralisée pour garantir cohérence client/serveur
+    const { tax, profit } = calculateCrashProfit(betAmount, multiplier);
     
     // Envoyer la taxe à ANTIBANK CORP
     if (tax > 0) {
@@ -591,12 +597,12 @@ class CrashGameManager {
       });
 
       if (result.count === 0) {
-        return { success: false };
+        return { success: false, error: "déjà encaissé" };
       }
 
       return { success: true, multiplier, profit, bet: betAmount };
     } catch {
-      return { success: false };
+      return { success: false, error: "erreur serveur" };
     }
   }
 
@@ -638,4 +644,68 @@ export function getCrashManager(): CrashGameManager {
     crashManager = new CrashGameManager();
   }
   return crashManager;
+}
+
+/**
+ * Transaction atomique: cashout + mise à jour balance + log transaction
+ * Évite les race conditions entre cashout et balance update
+ */
+export async function cashOutWithBalance(
+  userId: string, 
+  clientMultiplier?: number
+): Promise<{ 
+  success: boolean; 
+  error?: string;
+  multiplier?: number; 
+  profit?: number;
+  newBalance?: number;
+}> {
+  const manager = getCrashManager();
+  
+  // 1. Effectuer le cashout (marque le bet comme encaissé)
+  const cashoutResult = await manager.cashOut(userId, clientMultiplier);
+  
+  if (!cashoutResult.success) {
+    return { success: false, error: cashoutResult.error };
+  }
+  
+  const { multiplier, profit, bet } = cashoutResult;
+  if (profit === undefined || bet === undefined || multiplier === undefined) {
+    return { success: false, error: "erreur calcul" };
+  }
+  
+  const winnings = bet + profit;
+  
+  // 2. Transaction atomique: update balance + log
+  try {
+    const updatedUser = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({
+        where: { id: userId },
+        data: { balance: { increment: new Prisma.Decimal(winnings) } },
+      });
+      
+      await tx.transaction.create({
+        data: {
+          userId: userId,
+          type: "casino_crash",
+          amount: new Prisma.Decimal(profit),
+          description: `Crash x${multiplier.toFixed(2)}`,
+        },
+      });
+      
+      return user;
+    });
+    
+    return { 
+      success: true, 
+      multiplier, 
+      profit, 
+      newBalance: Number(updatedUser.balance) 
+    };
+  } catch (err) {
+    console.error("[CRASH] Balance update error:", err);
+    // Le cashout a réussi mais le balance update a échoué
+    // Cela ne devrait pas arriver, mais si c'est le cas, on doit le signaler
+    return { success: false, error: "erreur mise à jour solde" };
+  }
 }

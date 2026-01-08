@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { placeCrashBet } from "@/actions/crash";
 import { useBalance } from "@/hooks/use-balance";
+import { calculateCrashProfit } from "@/lib/crash";
 
 interface CrashBetPanelProps {
   gameState: "waiting" | "starting" | "running" | "crashed";
@@ -249,15 +250,15 @@ export function CrashBetPanel({
     // INSTANT feedback
     setIsCashingOut(true);
     
-    // Calcul et affichage immédiat
+    // Calcul optimiste avec la MEME formule que le serveur
     const betAmt = bet.bet;
     const multiplier = currentMultiplier;
-    const profit = Math.floor((betAmt * multiplier * 0.95 - betAmt) * 100) / 100;
+    const { profit, netWin } = calculateCrashProfit(betAmt, multiplier);
     
     // UI optimiste - affiche immédiatement comme si cashout réussi
     setOptimisticCashout({ multiplier, profit });
-    const newBalance = parseFloat(userBalance) + betAmt + profit;
-    setBalance(newBalance.toFixed(2));
+    const optimisticBalance = parseFloat(userBalance) + netWin - betAmt; // netWin inclut déjà la mise
+    setBalance(optimisticBalance.toFixed(2));
     
     // Fire and forget - serveur confirme en background
     onCashOut().then(result => {
@@ -266,12 +267,15 @@ export function CrashBetPanel({
         setError(result.error || "erreur cashout");
         setOptimisticCashout(null); // Rollback UI
         setBalance(userBalance);
+      } else if (result.newBalance !== undefined) {
+        // UTILISER la balance du serveur (source de vérité)
+        setBalance(result.newBalance.toFixed(2));
       }
     });
   };
 
   const potentialWin = effectiveBet && !effectiveCashedOut 
-    ? (effectiveBet.bet * currentMultiplier * 0.95).toFixed(2)
+    ? calculateCrashProfit(effectiveBet.bet, currentMultiplier).netWin.toFixed(2)
     : null;
 
   // Probabilités pour l'affichage
@@ -372,9 +376,9 @@ export function CrashBetPanel({
                       gain espéré (si succès)
                     </p>
                     <p className="text-lg font-mono text-[var(--text)]">
-                      {(betAmount * autoCashoutAt * 0.95).toFixed(2)}€
+                      {calculateCrashProfit(betAmount, autoCashoutAt).netWin.toFixed(2)}€
                       <span className="text-[var(--text-muted)] text-xs ml-1">
-                        (+{((autoCashoutAt * 0.95 - 1) * 100).toFixed(0)}%)
+                        (+{((calculateCrashProfit(betAmount, autoCashoutAt).profit / betAmount) * 100).toFixed(0)}%)
                       </span>
                     </p>
                   </div>

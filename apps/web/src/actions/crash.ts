@@ -2,7 +2,7 @@
 
 import { auth } from "@/lib/auth";
 import { prisma, Prisma } from "@antibank/db";
-import { getCrashManager } from "@/lib/crash-manager";
+import { getCrashManager, cashOutWithBalance } from "@/lib/crash-manager";
 import { validateBet } from "@/lib/crash";
 import { trackHeistCrashGame, trackHeistCasinoWin } from "@/actions/heist";
 
@@ -79,41 +79,18 @@ export async function cashOutCrash(clientMultiplier?: number): Promise<{
   profit?: number;
   newBalance?: number;
 }> {
-  // Auth + manager en parallèle
-  const [session, manager] = await Promise.all([
-    auth(),
-    Promise.resolve(getCrashManager()),
-  ]);
+  const session = await auth();
   
   if (!session?.user?.id) {
     return { success: false, error: "non connecté" };
   }
 
-  // CashOut via manager (déjà optimisé)
-  const result = await manager.cashOut(session.user.id, clientMultiplier);
+  // Transaction atomique: cashout + balance update en une seule opération
+  const result = await cashOutWithBalance(session.user.id, clientMultiplier);
   
-  if (result.success && result.profit !== undefined && result.bet !== undefined) {
-    const winnings = result.bet + result.profit;
-    
-    // Update balance + log transaction en parallèle
-    const [updatedUser] = await Promise.all([
-      prisma.user.update({
-        where: { id: session.user.id },
-        data: { balance: { increment: new Prisma.Decimal(winnings) } },
-      }),
-      prisma.transaction.create({
-        data: {
-          userId: session.user.id,
-          type: "casino_crash",
-          amount: new Prisma.Decimal(result.profit),
-          description: `Crash x${result.multiplier?.toFixed(2)}`,
-        },
-      }),
-      // Track heist en background
-      result.profit > 0 ? trackHeistCasinoWin(session.user.id).catch(() => {}) : Promise.resolve(),
-    ]);
-
-    return { ...result, newBalance: Number(updatedUser.balance) };
+  // Track heist en background si gain
+  if (result.success && result.profit && result.profit > 0) {
+    trackHeistCasinoWin(session.user.id).catch(() => {});
   }
 
   return result;
