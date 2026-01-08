@@ -99,19 +99,19 @@ interface TradeResult {
 // PHASE CONFIG - Dynamic probabilities
 // ============================================
 
-// Phase durations - designed for visible trend waves (5-15 min each)
-// Creates clear bull/bear cycles that players can recognize and trade
+// Phase durations - FAST cycles pour action constante
+// Oscillation 1€-3€ en 30 min, pics occasionnels
 const PHASE_DURATIONS: Record<MarketPhase, { min: number; max: number }> = {
-  accumulation: { min: 300, max: 600 },   // 5-10min - time to position, quiet sideways
-  markup: { min: 300, max: 540 },         // 5-9min - clear uptrend, building momentum
-  euphoria: { min: 120, max: 300 },       // 2-5min - explosive peak, FOMO zone
-  distribution: { min: 240, max: 480 },   // 4-8min - choppy top, whales exiting
-  decline: { min: 300, max: 600 },        // 5-10min - clear downtrend, slow bleed
-  capitulation: { min: 360, max: 720 },   // 6-12min - LONG pain, despair, opportunity
-  recovery: { min: 300, max: 540 },       // 5-9min - slow rebuild, hope returning
+  accumulation: { min: 60, max: 120 },    // 1-2min - court, prépare le prochain move
+  markup: { min: 45, max: 120 },          // 45s-2min - montée rapide
+  euphoria: { min: 20, max: 60 },         // 20s-1min - PUMP court et violent
+  distribution: { min: 30, max: 90 },     // 30s-1.5min - le sommet, ça hésite
+  decline: { min: 60, max: 150 },         // 1-2.5min - descente
+  capitulation: { min: 30, max: 90 },     // 30s-1.5min - CRASH rapide
+  recovery: { min: 60, max: 120 },        // 1-2min - rebond
 };
 
-const EVENT_CHECK_INTERVAL = { min: 60, max: 120 }; // 1-2min between event checks
+const EVENT_CHECK_INTERVAL = { min: 20, max: 45 }; // 20-45s entre events - beaucoup plus fréquent
 
 // Base transition probabilities - modified by momentum and price
 function calculatePhaseTransitions(
@@ -208,24 +208,24 @@ const EVENT_CONFIG: Record<MarketEvent, {
   direction: 'up' | 'down' | 'random' | 'none';
   cooldown: number;
 }> = {
-  // Magnitudes reduced ~50% to keep price in 1-10€ range
+  // Magnitudes FORTES pour des mouvements visibles
   none: { duration: { min: 0, max: 0 }, magnitude: { min: 0, max: 0 }, direction: 'none', cooldown: 0 },
-  whale_pump: { duration: { min: 15, max: 45 }, magnitude: { min: 0.15, max: 0.50 }, direction: 'up', cooldown: 30 },
-  whale_dump: { duration: { min: 15, max: 45 }, magnitude: { min: 0.10, max: 0.35 }, direction: 'down', cooldown: 30 },
-  flash_crash: { duration: { min: 5, max: 15 }, magnitude: { min: 0.20, max: 0.40 }, direction: 'down', cooldown: 60 },
-  mega_pump: { duration: { min: 60, max: 180 }, magnitude: { min: 0.80, max: 1.50 }, direction: 'up', cooldown: 120 },
-  fomo_wave: { duration: { min: 30, max: 90 }, magnitude: { min: 0.10, max: 0.30 }, direction: 'up', cooldown: 45 },
-  panic_wave: { duration: { min: 30, max: 90 }, magnitude: { min: 0.10, max: 0.30 }, direction: 'down', cooldown: 45 },
-  short_squeeze: { duration: { min: 20, max: 60 }, magnitude: { min: 0.25, max: 0.60 }, direction: 'up', cooldown: 60 },
-  rug_pull: { duration: { min: 10, max: 30 }, magnitude: { min: 0.40, max: 0.60 }, direction: 'down', cooldown: 180 },
-  dead_cat_bounce: { duration: { min: 60, max: 120 }, magnitude: { min: 0.10, max: 0.25 }, direction: 'random', cooldown: 90 },
-  calm_before_storm: { duration: { min: 30, max: 60 }, magnitude: { min: 0.15, max: 0.35 }, direction: 'random', cooldown: 60 },
-  volatility_storm: { duration: { min: 45, max: 120 }, magnitude: { min: 2.0, max: 3.0 }, direction: 'none', cooldown: 60 },
-  price_freeze: { duration: { min: 10, max: 30 }, magnitude: { min: 0, max: 0 }, direction: 'none', cooldown: 90 },
-  momentum_flip: { duration: { min: 5, max: 10 }, magnitude: { min: 0, max: 0 }, direction: 'none', cooldown: 60 },
-  mystery_whale: { duration: { min: 30, max: 90 }, magnitude: { min: 0.15, max: 0.50 }, direction: 'random', cooldown: 60 },
-  double_or_nothing: { duration: { min: 5, max: 10 }, magnitude: { min: 0.50, max: 0.50 }, direction: 'random', cooldown: 120 },
-  golden_hour: { duration: { min: 60, max: 180 }, magnitude: { min: 0.80, max: 1.20 }, direction: 'up', cooldown: 180 },
+  whale_pump: { duration: { min: 10, max: 30 }, magnitude: { min: 0.4, max: 0.8 }, direction: 'up', cooldown: 15 },
+  whale_dump: { duration: { min: 10, max: 30 }, magnitude: { min: 0.3, max: 0.6 }, direction: 'down', cooldown: 15 },
+  flash_crash: { duration: { min: 5, max: 15 }, magnitude: { min: 0.5, max: 0.9 }, direction: 'down', cooldown: 30 },
+  mega_pump: { duration: { min: 30, max: 90 }, magnitude: { min: 1.5, max: 3.0 }, direction: 'up', cooldown: 90 },  // Le gros pump ~1x/h
+  fomo_wave: { duration: { min: 15, max: 45 }, magnitude: { min: 0.3, max: 0.6 }, direction: 'up', cooldown: 20 },
+  panic_wave: { duration: { min: 15, max: 45 }, magnitude: { min: 0.3, max: 0.6 }, direction: 'down', cooldown: 20 },
+  short_squeeze: { duration: { min: 10, max: 30 }, magnitude: { min: 0.6, max: 1.2 }, direction: 'up', cooldown: 30 },
+  rug_pull: { duration: { min: 5, max: 15 }, magnitude: { min: 0.8, max: 1.5 }, direction: 'down', cooldown: 60 },
+  dead_cat_bounce: { duration: { min: 20, max: 60 }, magnitude: { min: 0.3, max: 0.5 }, direction: 'random', cooldown: 30 },
+  calm_before_storm: { duration: { min: 15, max: 30 }, magnitude: { min: 0.4, max: 0.7 }, direction: 'random', cooldown: 30 },
+  volatility_storm: { duration: { min: 20, max: 60 }, magnitude: { min: 3.0, max: 5.0 }, direction: 'none', cooldown: 30 },
+  price_freeze: { duration: { min: 5, max: 15 }, magnitude: { min: 0, max: 0 }, direction: 'none', cooldown: 45 },
+  momentum_flip: { duration: { min: 3, max: 8 }, magnitude: { min: 0, max: 0 }, direction: 'none', cooldown: 30 },
+  mystery_whale: { duration: { min: 15, max: 45 }, magnitude: { min: 0.4, max: 0.8 }, direction: 'random', cooldown: 30 },
+  double_or_nothing: { duration: { min: 3, max: 8 }, magnitude: { min: 0.8, max: 0.8 }, direction: 'random', cooldown: 60 },
+  golden_hour: { duration: { min: 30, max: 90 }, magnitude: { min: 1.2, max: 2.0 }, direction: 'up', cooldown: 90 },  // Gros pump rare
 };
 
 // Event probabilities per second, modified by phase
@@ -257,13 +257,13 @@ function calculateEventProbs(phase: MarketPhase, momentum: number): { pump: numb
 // ============================================
 
 const VOLATILITY_BY_PHASE: Record<MarketPhase, { base: number; max: number }> = {
-  accumulation: { base: 0.0006, max: 0.006 },  // very calm
-  markup:       { base: 0.0012, max: 0.012 },  // building
-  euphoria:     { base: 0.0020, max: 0.020 },  // exciting but controlled
-  distribution: { base: 0.0025, max: 0.025 },  // choppy
-  decline:      { base: 0.0020, max: 0.020 },  // steady bleed
-  capitulation: { base: 0.0035, max: 0.035 },  // painful but not catastrophic
-  recovery:     { base: 0.0010, max: 0.010 },  // slow rebuild
+  accumulation: { base: 0.008, max: 0.025 },   // calme mais ça bouge quand même
+  markup:       { base: 0.015, max: 0.045 },   // ça monte bien
+  euphoria:     { base: 0.025, max: 0.080 },   // PUMP violent
+  distribution: { base: 0.020, max: 0.060 },   // choppy, imprévisible
+  decline:      { base: 0.018, max: 0.050 },   // ça descend vite
+  capitulation: { base: 0.030, max: 0.100 },   // CRASH violent
+  recovery:     { base: 0.012, max: 0.035 },   // remontée progressive
 };
 
 function getVolatilityName(base: number): string {
@@ -551,15 +551,15 @@ export async function tickPrice(): Promise<{
   // Update momentum with faster decay - prevents runaway spirals
   state.momentum *= 0.985;  // Momentum halves every ~46 ticks
   
-  // Phase influences momentum - reduced to prevent extreme swings
+  // Phase influences momentum - FORT pour créer des vraies tendances
   const phaseInfluence: Record<MarketPhase, number> = {
-    accumulation:  0.001,   // very slight bullish
-    markup:        0.003,   // moderate bullish
-    euphoria:     -0.002,   // mild profit taking
-    distribution: -0.004,   // moderate selling
-    decline:      -0.005,   // steady decline
-    capitulation: -0.006,   // painful but recoverable
-    recovery:      0.002,   // slow rebuild
+    accumulation:  0.02,    // légèrement bullish, accumule
+    markup:        0.08,    // MONTE fort
+    euphoria:      0.12,    // PUMP maximum
+    distribution: -0.04,    // début de la vente
+    decline:      -0.08,    // DESCEND fort
+    capitulation: -0.15,    // CRASH maximum
+    recovery:      0.05,    // rebond
   };
   state.momentum += phaseInfluence[state.phase] * deltaSeconds;
   
@@ -611,12 +611,31 @@ export async function tickPrice(): Promise<{
       }
     }
     
-    // CONTINUOUS MEAN REVERSION - always pulls toward fair value (3€)
-    // Creates a "gravity well" - the further from fair, the stronger the pull
-    const priceRatio = state.price / DC_FAIR_VALUE;
-    const deviationFromFair = Math.log(priceRatio); // log scale for symmetry
-    const reversionStrength = 0.0005;
-    priceChange += -deviationFromFair * reversionStrength * deltaSeconds;
+    // MEAN REVERSION - oscille entre 1€ et 3€, avec pics occasionnels
+    // Centre à 2€, mais permet des excursions
+    const CENTER_PRICE = 2.0;
+    const priceRatio = state.price / CENTER_PRICE;
+    const deviationFromCenter = Math.log(priceRatio);
+    
+    // Force de rappel progressive - douce au centre, forte aux extrêmes
+    // Sous 1€ ou au-dessus de 4€ = forte correction
+    let reversionStrength = 0.01; // base 1%
+    
+    if (state.price < 0.8) {
+      // Trop bas ! Force le rebond
+      reversionStrength = 0.05;
+    } else if (state.price < 1.2) {
+      // Zone basse - pousse vers le haut
+      reversionStrength = 0.025;
+    } else if (state.price > 5) {
+      // Trop haut ! Force la correction
+      reversionStrength = 0.04;
+    } else if (state.price > 3.5) {
+      // Zone haute - pousse vers le bas (mais laisse les pics arriver)
+      reversionStrength = 0.015;
+    }
+    
+    priceChange += -deviationFromCenter * reversionStrength * deltaSeconds;
     
     // SUPPLY PRESSURE - when total market cap gets too high, add selling pressure
     // This simulates "the market can't sustain this valuation"
@@ -655,9 +674,24 @@ export async function tickPrice(): Promise<{
       }
     }
     
-    // Random spike (5% chance)
-    if (Math.random() < 0.05) {
-      priceChange += (Math.random() - 0.5) * volatility.max * volatilityMod;
+    // Random spike (15% chance) - plus fréquent pour plus d'action
+    if (Math.random() < 0.15) {
+      priceChange += (Math.random() - 0.5) * volatility.max * volatilityMod * 1.5;
+    }
+    
+    // MEGA PUMP/CRASH rare (~1x par heure si tick = 1s, donc 1/3600 = 0.03%)
+    // Mais on check toutes les 5s environ, donc ~0.15% par check
+    if (Math.random() < 0.0015 && state.activeEvent === 'none') {
+      const isMegaPump = Math.random() < 0.6; // 60% pump, 40% crash
+      if (isMegaPump) {
+        state.activeEvent = 'mega_pump';
+        state.eventDirection = 1;
+      } else {
+        state.activeEvent = 'flash_crash';
+        state.eventDirection = -1;
+      }
+      state.eventStartTime = now;
+      state.eventDuration = randomInRange(30, 90) * 1000; // 30s-1.5min
     }
   }
 
