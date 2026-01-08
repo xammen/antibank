@@ -36,15 +36,17 @@ export default async function Dashboard() {
 
   return (
     <main className="min-h-screen relative">
-      {/* Leaderboard + DahkaCoin Price - Fixed on left for desktop */}
-      <aside className="hidden lg:block fixed left-6 top-[8vh] w-[280px] z-10 flex flex-col gap-3">
-        <Leaderboard />
+      {/* Leaderboards side by side + DahkaCoin Price below - Fixed on left for desktop */}
+      <aside className="hidden lg:flex fixed left-6 top-[8vh] z-10 flex-col gap-3 w-[580px]">
+        <div className="flex gap-3">
+          <div className="w-[280px]">
+            <Leaderboard />
+          </div>
+          <div className="w-[280px]">
+            <DahkaCoinLeaderboard />
+          </div>
+        </div>
         <DahkaCoinPriceWidget />
-      </aside>
-
-      {/* DahkaCoin Leaderboard - Fixed on right for desktop */}
-      <aside className="hidden lg:block fixed right-6 top-[8vh] w-[280px] z-10">
-        <DahkaCoinLeaderboard />
       </aside>
 
       {/* Main content - centered */}
