@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 
 interface LeaderboardUser {
   id: string;
@@ -11,7 +11,7 @@ interface LeaderboardUser {
 }
 
 // Odometer digit component - animates individual digits
-function OdometerDigit({ digit, duration = 500 }: { digit: string; duration?: number }) {
+const OdometerDigit = React.memo(function OdometerDigit({ digit, duration = 500 }: { digit: string; duration?: number }) {
   const [displayDigit, setDisplayDigit] = useState(digit);
   const [isAnimating, setIsAnimating] = useState(false);
   const prevDigit = useRef(digit);
@@ -55,7 +55,7 @@ function OdometerDigit({ digit, duration = 500 }: { digit: string; duration?: nu
       )}
     </span>
   );
-}
+});
 
 // Animated balance display using odometer effect
 function AnimatedBalance({ value, isMe, isAntibank }: { value: string; isMe: boolean; isAntibank?: boolean }) {
@@ -78,7 +78,7 @@ function AnimatedBalance({ value, isMe, isAntibank }: { value: string; isMe: boo
 }
 
 // Single leaderboard row with position animation
-function LeaderboardRow({
+const LeaderboardRow = React.memo(function LeaderboardRow({
   user,
   rank,
   style,
@@ -115,7 +115,7 @@ function LeaderboardRow({
       <AnimatedBalance value={user.balance} isMe={user.isMe} isAntibank={user.isAntibank} />
     </div>
   );
-}
+});
 
 export function Leaderboard() {
   const [users, setUsers] = useState<LeaderboardUser[]>([]);
@@ -147,8 +147,28 @@ export function Leaderboard() {
 
   useEffect(() => {
     fetchLeaderboard();
-    const interval = setInterval(fetchLeaderboard, 3000); // refresh every 3s for smoother updates
-    return () => clearInterval(interval);
+    let interval: ReturnType<typeof setInterval> | null = setInterval(fetchLeaderboard, 10000);
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Tab hidden - pause polling
+        if (interval) {
+          clearInterval(interval);
+          interval = null;
+        }
+      } else {
+        // Tab visible - fetch immediately and restart polling
+        fetchLeaderboard();
+        interval = setInterval(fetchLeaderboard, 10000);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      if (interval) clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [fetchLeaderboard]);
 
   if (loading) {

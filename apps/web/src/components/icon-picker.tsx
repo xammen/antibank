@@ -12,9 +12,10 @@ const ICONS: { id: ClickerIcon; label: string }[] = [
 
 interface IconPickerProps {
   currentIcon: ClickerIcon;
+  onIconChange?: (icon: ClickerIcon) => void;
 }
 
-export function IconPicker({ currentIcon }: IconPickerProps) {
+export function IconPicker({ currentIcon, onIconChange }: IconPickerProps) {
   const [selected, setSelected] = useState<ClickerIcon>(currentIcon);
   const [isOpen, setIsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -30,8 +31,7 @@ export function IconPicker({ currentIcon }: IconPickerProps) {
     
     if (result.success) {
       setSelected(icon);
-      // Refresh la page pour voir le changement
-      window.location.reload();
+      onIconChange?.(icon);
     }
     
     setSaving(false);

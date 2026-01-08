@@ -54,10 +54,39 @@ export function VoiceStatus() {
     }
   }, []);
 
+  // Polling ref for visibility optimization
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 30000);
-    return () => clearInterval(interval);
+    pollingRef.current = setInterval(fetchStatus, 30000);
+
+    // Visibility API - pause polling when tab hidden
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Tab hidden - stop polling
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+      } else {
+        // Tab visible - fetch immediately and restart polling
+        fetchStatus();
+        if (!pollingRef.current) {
+          pollingRef.current = setInterval(fetchStatus, 30000);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [fetchStatus]);
 
   // Blink effect

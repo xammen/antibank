@@ -135,11 +135,35 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
     // Polling toutes les 500ms
     pollingRef.current = setInterval(fetchState, 500);
 
+    // Visibility API - pause polling when tab hidden
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Tab hidden - stop polling and animation
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current);
+          animationRef.current = null;
+        }
+      } else {
+        // Tab visible - fetch immediately and restart polling
+        fetchState();
+        if (!pollingRef.current) {
+          pollingRef.current = setInterval(fetchState, 500);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
       }
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [fetchState]);
 

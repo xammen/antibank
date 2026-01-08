@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import Image from "next/image";
 import { clickBatch } from "@/actions/click";
 import { useBalance } from "@/hooks/use-balance";
@@ -11,6 +11,7 @@ interface ClickerProps {
   userId: string;
   clickValue?: number; // valeur par clic (avec upgrades)
   icon?: ClickerIcon;
+  onIconChange?: (icon: ClickerIcon) => void;
 }
 
 interface FloatingNumber {
@@ -30,6 +31,9 @@ export function Clicker({ userId, clickValue = 0.01, icon = "cookie" }: ClickerP
   const { addToBalance, setBalance } = useBalance("0");
   const buttonRef = useRef<HTMLButtonElement>(null);
   const errorTimeout = useRef<NodeJS.Timeout | null>(null);
+  
+  // Memoize formatted click value to avoid recalc on every render
+  const formattedClickValue = useMemo(() => clickValue.toFixed(2), [clickValue]);
   
   // Batching state
   const pendingClicks = useRef<number>(0);
@@ -205,7 +209,7 @@ export function Clicker({ userId, clickValue = 0.01, icon = "cookie" }: ClickerP
                 textShadow: "0 0 10px rgba(74,222,128,0.8), 0 0 20px rgba(74,222,128,0.4)",
               }}
             >
-              +{clickValue.toFixed(2)}
+              +{formattedClickValue}
             </span>
           ))}
         </div>
