@@ -173,3 +173,60 @@ button {
   0% { background-position: 0% 50%; }
   100% { background-position: 200% 50%; }
 }
+
+/* Crash game - Cashout button pulsation */
+@keyframes pulse-cashout {
+  0%, 100% { 
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% { 
+    transform: scale(1.02);
+    filter: brightness(1.1);
+  }
+}
+
+/* Crash game - Heartbeat indicator */
+@keyframes heartbeat {
+  0%, 100% { 
+    opacity: 0.7;
+    transform: scaleX(1);
+  }
+  50% { 
+    opacity: 1;
+    transform: scaleX(1.05);
+  }
+}
+
+/* Crash game - Win celebration */
+@keyframes celebrate {
+  0% { 
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% { 
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  100% { 
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-celebrate {
+  animation: celebrate 0.5s ease-out;
+}
+
+/* Crash game - Loss shake */
+@keyframes loss-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
+.animate-loss {
+  animation: loss-shake 0.4s ease-out;
+}

@@ -192,7 +192,8 @@ export interface CrashPlayer {
 
 // Timing constants
 export const CRASH_CONFIG = {
-  COUNTDOWN_SECONDS: 15,      // Temps d'attente entre les parties
+  COUNTDOWN_SECONDS: 10,      // Temps d'attente entre les parties (était 15s)
+  POST_CRASH_DELAY_MS: 3000,  // Délai après crash avant nouvelle partie (était 5s)
   MIN_GAME_DURATION_MS: 1000, // Minimum 1 seconde de jeu
   TICK_RATE_MS: 50,          // Update toutes les 50ms (20 fps pour la logique)
   GRAPH_FPS: 60,             // 60 fps pour le graphique

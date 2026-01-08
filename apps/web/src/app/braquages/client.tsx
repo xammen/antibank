@@ -121,6 +121,11 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
   const [breachTarget, setBreachTarget] = useState<RobberyTarget | null>(null);
   const [breachDifficulty, setBreachDifficulty] = useState<string>("medium");
 
+  // Practice mode state
+  const [showPractice, setShowPractice] = useState(false);
+  const [showPracticePicker, setShowPracticePicker] = useState(false);
+  const [practiceDifficulty, setPracticeDifficulty] = useState<string>("medium");
+
   const loadData = useCallback(async () => {
     const [targetsRes, cooldownRes, historyRes, globalHistoryRes, bountiesRes, antibankRes, heistRes] = await Promise.all([
       getRobberyTargets(),
@@ -335,6 +340,21 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
     return "a l'instant";
   };
 
+  // Practice mode handlers
+  const handleStartPractice = (difficulty: string) => {
+    setPracticeDifficulty(difficulty);
+    setShowPracticePicker(false);
+    setShowPractice(true);
+  };
+
+  const handlePracticeComplete = () => {
+    // En mode entrainement, on ne fait rien - le joueur peut rejouer ou quitter
+  };
+
+  const handlePracticeCancel = () => {
+    setShowPractice(false);
+  };
+
   return (
     <>
       {/* Modal Breach Game */}
@@ -347,6 +367,83 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
             onComplete={handleBreachComplete}
             onCancel={handleBreachCancel}
           />
+        </div>
+      )}
+
+      {/* Modal Practice Mode */}
+      {showPractice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
+          <BreachGame
+            difficulty={practiceDifficulty}
+            practiceMode={true}
+            onComplete={handlePracticeComplete}
+            onCancel={handlePracticeCancel}
+          />
+        </div>
+      )}
+
+      {/* Modal Practice Difficulty Picker */}
+      {showPracticePicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="flex flex-col gap-4 p-6 border border-[var(--line)] bg-[rgba(0,0,0,0.9)] max-w-[350px] w-full">
+            <div className="flex items-center justify-between border-b border-[var(--line)] pb-4">
+              <h2 className="text-[0.75rem] uppercase tracking-widest text-yellow-400">
+                entrainement
+              </h2>
+              <button
+                onClick={() => setShowPracticePicker(false)}
+                className="text-[0.65rem] uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+              >
+                fermer
+              </button>
+            </div>
+            
+            <p className="text-[0.7rem] text-[var(--text-muted)] text-center">
+              choisis une difficulte
+            </p>
+
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => handleStartPractice("easy")}
+                className="p-3 border border-green-500/30 hover:border-green-500 hover:bg-green-500/10 transition-all text-left"
+              >
+                <span className="text-green-400 text-sm uppercase tracking-wider">facile</span>
+                <p className="text-[0.65rem] text-[var(--text-muted)] mt-1">
+                  grille 4x4 · 1 sequence · buffer 5 · 45s
+                </p>
+              </button>
+
+              <button
+                onClick={() => handleStartPractice("medium")}
+                className="p-3 border border-yellow-500/30 hover:border-yellow-500 hover:bg-yellow-500/10 transition-all text-left"
+              >
+                <span className="text-yellow-400 text-sm uppercase tracking-wider">moyen</span>
+                <p className="text-[0.65rem] text-[var(--text-muted)] mt-1">
+                  grille 5x5 · 2 sequences · buffer 5 · 40s
+                </p>
+              </button>
+
+              <button
+                onClick={() => handleStartPractice("hard")}
+                className="p-3 border border-red-500/30 hover:border-red-500 hover:bg-red-500/10 transition-all text-left"
+              >
+                <span className="text-red-400 text-sm uppercase tracking-wider">difficile</span>
+                <p className="text-[0.65rem] text-[var(--text-muted)] mt-1">
+                  grille 6x6 · 3 sequences · buffer 6 · 35s
+                </p>
+              </button>
+
+              <button
+                onClick={() => handleStartPractice("antibank")}
+                className="p-3 border border-purple-500/30 hover:border-purple-500 hover:bg-purple-500/10 transition-all text-left"
+              >
+                <span className="text-purple-400 text-sm uppercase tracking-wider">antibank</span>
+                <p className="text-[0.65rem] text-[var(--text-muted)] mt-1">
+                  grille 6x6 · 3 sequences · buffer 4 · 30s
+                </p>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -617,17 +714,26 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
         )}
       </section>
 
-      {/* Info */}
-      <div className="text-center p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
-        <p className="text-[0.7rem] text-[var(--text-muted)]">
-          complete le mini-jeu breach pour reussir le braquage
-          <br />
-          0 sequence = echec | 1+ sequences = succes
-          <br />
-          plus de sequences = plus de butin (jusqu'a +10%)
-          <br />
-          <span className="text-yellow-400">beta: cooldown 2 min</span>
-        </p>
+      {/* Practice Button + Info */}
+      <div className="flex flex-col gap-3">
+        <button
+          onClick={() => setShowPracticePicker(true)}
+          className="w-full py-3 text-[0.75rem] uppercase tracking-widest border border-yellow-500/30 text-yellow-400 hover:border-yellow-500 hover:bg-yellow-500/10 transition-all"
+        >
+          s'entrainer
+        </button>
+        
+        <div className="text-center p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
+          <p className="text-[0.7rem] text-[var(--text-muted)]">
+            complete le mini-jeu breach pour reussir le braquage
+            <br />
+            0 sequence = echec | 1+ sequences = succes
+            <br />
+            plus de sequences = plus de butin (jusqu'a +10%)
+            <br />
+            <span className="text-yellow-400">beta: cooldown 2 min</span>
+          </p>
+        </div>
       </div>
 
       {/* OPERATION ANTIBANK - En bas de page */}

@@ -26,6 +26,21 @@ interface BetHistoryEntry {
   createdAt: Date;
 }
 
+// Couleur dynamique pour le bouton cashout basée sur le multiplicateur
+function getCashoutButtonColor(mult: number): { bg: string; shadow: string; text: string } {
+  if (mult < 2) {
+    return { bg: "#22c55e", shadow: "0 0 20px rgba(34, 197, 94, 0.4)", text: "#000" };
+  } else if (mult < 5) {
+    return { bg: "#eab308", shadow: "0 0 20px rgba(234, 179, 8, 0.4)", text: "#000" };
+  } else if (mult < 10) {
+    return { bg: "#f97316", shadow: "0 0 25px rgba(249, 115, 22, 0.5)", text: "#000" };
+  } else if (mult < 25) {
+    return { bg: "#ef4444", shadow: "0 0 30px rgba(239, 68, 68, 0.5)", text: "#fff" };
+  } else {
+    return { bg: "#a855f7", shadow: "0 0 35px rgba(168, 85, 247, 0.6)", text: "#fff" };
+  }
+}
+
 export function CrashBetPanel({
   gameState,
   userBet,
@@ -41,6 +56,10 @@ export function CrashBetPanel({
   const { setBalance } = useBalance(userBalance);
   const autoCashoutTriggered = useRef(false);
   const lastGameStateRef = useRef(gameState);
+  
+  // Loading states pour feedback immédiat
+  const [isBetting, setIsBetting] = useState(false);
+  const [isCashingOut, setIsCashingOut] = useState(false);
   
   // État optimiste local - override l'état serveur temporairement
   const [optimisticBet, setOptimisticBet] = useState<{ bet: number } | null>(null);
@@ -119,6 +138,8 @@ export function CrashBetPanel({
   }, [gameState]);
 
   const handleBet = () => {
+    if (isBetting) return; // Prevent double-click
+    
     setError(null);
     setSuccess(null);
     
@@ -133,13 +154,17 @@ export function CrashBetPanel({
       return;
     }
 
-    // INSTANT: UI optimiste - affiche immédiatement comme si bet placé
+    // INSTANT feedback
+    setIsBetting(true);
+    
+    // UI optimiste - affiche immédiatement comme si bet placé
     setOptimisticBet({ bet: amount });
     const newBalance = parseFloat(userBalance) - amount;
     setBalance(newBalance.toFixed(2));
     
     // Fire and forget - serveur confirme en background
     placeCrashBet(amount).then(result => {
+      setIsBetting(false);
       if (!result.success) {
         setError(result.error || "erreur");
         setOptimisticBet(null); // Rollback UI
@@ -149,10 +174,15 @@ export function CrashBetPanel({
   };
 
   const handleCashOut = () => {
+    if (isCashingOut) return; // Prevent double-click
+    
     const bet = effectiveBet;
     if (!bet) return;
     
-    // INSTANT: Calcul et affichage immédiat
+    // INSTANT feedback
+    setIsCashingOut(true);
+    
+    // Calcul et affichage immédiat
     const betAmount = bet.bet;
     const multiplier = currentMultiplier;
     const profit = Math.floor((betAmount * multiplier * 0.95 - betAmount) * 100) / 100;
@@ -164,6 +194,7 @@ export function CrashBetPanel({
     
     // Fire and forget - serveur confirme en background
     onCashOut().then(result => {
+      setIsCashingOut(false);
       if (!result.success) {
         setError(result.error || "erreur cashout");
         setOptimisticCashout(null); // Rollback UI
@@ -244,15 +275,21 @@ export function CrashBetPanel({
             />
           </div>
 
-          {/* Bet button */}
+          {/* Bet button - Premium design */}
           <button
             onClick={handleBet}
-            disabled={gameState !== "waiting"}
-            className="w-full py-4 text-sm border border-[var(--text)] 
-              hover:bg-[rgba(255,255,255,0.05)] transition-colors
-              disabled:opacity-30 disabled:cursor-not-allowed uppercase tracking-widest"
+            disabled={gameState !== "waiting" || isBetting}
+            className={`
+              w-full py-4 text-sm uppercase tracking-widest font-medium
+              border border-[var(--text)] bg-[rgba(255,255,255,0.03)]
+              transition-all duration-150 ease-out
+              hover:bg-[rgba(255,255,255,0.08)] hover:shadow-[0_0_15px_rgba(255,255,255,0.1)]
+              active:scale-[0.98] active:bg-[rgba(255,255,255,0.12)]
+              disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:active:scale-100
+              ${isBetting ? "animate-pulse" : ""}
+            `}
           >
-            parier
+            {isBetting ? "..." : "parier"}
           </button>
         </>
       )}
@@ -270,43 +307,68 @@ export function CrashBetPanel({
         </div>
       )}
 
-      {/* Si bet en cours - bouton cashout */}
+      {/* Si bet en cours - bouton cashout PREMIUM */}
       {effectiveBet && !effectiveCashedOut && gameState === "running" && (
         <div className="flex flex-col gap-3">
           <div className="text-center">
-            <p className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">gain</p>
-            <p className="text-2xl font-mono mt-1">{potentialWin}</p>
+            <p className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">gain potentiel</p>
+            <p className="text-3xl font-mono mt-1 font-light">{potentialWin}€</p>
           </div>
           
+          {/* Cashout button - Pulsating, colored based on multiplier */}
           <button
             onClick={handleCashOut}
-            className="w-full py-6 text-sm border-2 border-[var(--text)] 
-              hover:bg-[var(--text)] hover:text-[var(--bg)] transition-colors
-              uppercase tracking-widest font-medium active:scale-95 transition-transform"
+            disabled={isCashingOut}
+            className={`
+              w-full py-8 text-base uppercase tracking-widest font-bold
+              transition-all duration-100 ease-out
+              active:scale-[0.97]
+              disabled:opacity-70 disabled:cursor-not-allowed
+              ${isCashingOut ? "" : "animate-[pulse-cashout_0.8s_ease-in-out_infinite]"}
+            `}
+            style={{
+              backgroundColor: getCashoutButtonColor(currentMultiplier).bg,
+              color: getCashoutButtonColor(currentMultiplier).text,
+              boxShadow: getCashoutButtonColor(currentMultiplier).shadow,
+            }}
           >
-            cashout
+            {isCashingOut ? "..." : `cashout ${currentMultiplier.toFixed(2)}x`}
           </button>
+          
+          {/* Heartbeat indicator - faster as multiplier increases */}
+          <div 
+            className="h-1 bg-[var(--line)] overflow-hidden rounded-full"
+          >
+            <div 
+              className="h-full rounded-full transition-all duration-100"
+              style={{
+                backgroundColor: getCashoutButtonColor(currentMultiplier).bg,
+                width: `${Math.min(100, (currentMultiplier / 10) * 100)}%`,
+                animation: `heartbeat ${Math.max(0.3, 1 - currentMultiplier / 20)}s ease-in-out infinite`,
+              }}
+            />
+          </div>
         </div>
       )}
 
-      {/* Si cashedout */}
+      {/* Si cashedout - Celebration */}
       {effectiveCashedOut && (
-        <div className="text-center py-6">
-          <p className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">cashout</p>
-          <p className="text-xl font-mono mt-1">
-            x{effectiveCashedOut.multiplier.toFixed(2)}
+        <div className="text-center py-6 animate-celebrate">
+          <p className="text-[0.65rem] uppercase tracking-widest text-green-400/70">cashout réussi</p>
+          <p className="text-3xl font-mono mt-2 text-green-400 font-light">
+            {effectiveCashedOut.multiplier.toFixed(2)}x
           </p>
-          <p className="text-sm font-mono mt-1 text-[var(--text-muted)]">
-            +{effectiveCashedOut.profit.toFixed(2)}
+          <p className="text-lg font-mono mt-1 text-green-400">
+            +{effectiveCashedOut.profit.toFixed(2)}€
           </p>
         </div>
       )}
 
-      {/* Si crashed sans cashout */}
+      {/* Si crashed sans cashout - Loss */}
       {effectiveBet && !effectiveCashedOut && gameState === "crashed" && (
-        <div className="text-center py-6">
-          <p className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">perdu</p>
-          <p className="text-xl font-mono mt-1">-{effectiveBet.bet}</p>
+        <div className="text-center py-6 animate-loss">
+          <p className="text-[0.65rem] uppercase tracking-widest text-red-400/70">perdu</p>
+          <p className="text-2xl font-mono mt-2 text-red-400">-{effectiveBet.bet}€</p>
         </div>
       )}
 
@@ -324,43 +386,6 @@ export function CrashBetPanel({
         </div>
       )}
 
-      {/* User bet history */}
-      {betHistory.length > 0 && (
-        <div className="border-t border-[var(--line)] mt-2">
-          <div className="py-2 border-b border-[var(--line)]">
-            <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)]">historique</p>
-          </div>
-          <div className="divide-y divide-[var(--line)] max-h-40 overflow-y-auto">
-            {betHistory.map((entry, i) => {
-              const won = entry.profit > 0;
-              const lost = entry.profit < 0;
-              return (
-                <div
-                  key={i}
-                  className={`px-3 py-2 flex items-center justify-between ${
-                    won ? "bg-green-500/5" : lost ? "bg-red-500/5" : "bg-yellow-500/5"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-[var(--text-muted)] font-mono">{entry.bet}e</span>
-                    <span className="text-[var(--text-muted)]">→</span>
-                    <span className={`text-xs font-mono ${
-                      entry.cashOutAt ? "text-green-400" : "text-red-400"
-                    }`}>
-                      x{(entry.cashOutAt || entry.crashPoint).toFixed(2)}
-                    </span>
-                  </div>
-                  <span className={`text-xs font-mono ${
-                    won ? "text-green-400" : lost ? "text-red-400" : "text-yellow-400"
-                  }`}>
-                    {entry.profit > 0 ? "+" : ""}{entry.profit.toFixed(2)}e
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

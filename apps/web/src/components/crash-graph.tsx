@@ -11,6 +11,56 @@ interface CrashGraphProps {
   startTime?: number | null;
 }
 
+// Couleurs dynamiques basées sur le multiplicateur
+// Transition smooth: vert → jaune → orange → rouge → violet
+function getMultiplierColor(mult: number): string {
+  if (mult < 2) {
+    // Vert pur
+    return "#22c55e";
+  } else if (mult < 5) {
+    // Vert → Jaune (interpolation)
+    const t = (mult - 2) / 3; // 0 à 1
+    return interpolateColor("#22c55e", "#eab308", t);
+  } else if (mult < 10) {
+    // Jaune → Orange
+    const t = (mult - 5) / 5;
+    return interpolateColor("#eab308", "#f97316", t);
+  } else if (mult < 25) {
+    // Orange → Rouge
+    const t = (mult - 10) / 15;
+    return interpolateColor("#f97316", "#ef4444", t);
+  } else {
+    // Rouge → Violet (pour les moonshots)
+    const t = Math.min(1, (mult - 25) / 25);
+    return interpolateColor("#ef4444", "#a855f7", t);
+  }
+}
+
+// Interpolation linéaire entre deux couleurs hex
+function interpolateColor(color1: string, color2: string, t: number): string {
+  const r1 = parseInt(color1.slice(1, 3), 16);
+  const g1 = parseInt(color1.slice(3, 5), 16);
+  const b1 = parseInt(color1.slice(5, 7), 16);
+  
+  const r2 = parseInt(color2.slice(1, 3), 16);
+  const g2 = parseInt(color2.slice(3, 5), 16);
+  const b2 = parseInt(color2.slice(5, 7), 16);
+  
+  const r = Math.round(r1 + (r2 - r1) * t);
+  const g = Math.round(g1 + (g2 - g1) * t);
+  const b = Math.round(b1 + (b2 - b1) * t);
+  
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+}
+
+// Convertit hex en rgba
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export function CrashGraph({ state, multiplier, crashPoint, countdown, startTime }: CrashGraphProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -75,10 +125,10 @@ export function CrashGraph({ state, multiplier, crashPoint, countdown, startTime
     const minY = 1;
     const maxY = targetMaxY;
 
-    // Colors
+    // Colors - dynamiques basées sur le multiplicateur
     const isRunning = state === "running";
     const isCrashed = state === "crashed";
-    const primaryColor = isCrashed ? "#ef4444" : "#22c55e";
+    const primaryColor = isCrashed ? "#ef4444" : getMultiplierColor(currentMult);
 
     // Clear canvas with gradient background
     const bgGradient = ctx.createLinearGradient(0, 0, 0, height);
@@ -133,16 +183,16 @@ export function CrashGraph({ state, multiplier, crashPoint, countdown, startTime
       const endX = getX(1);
       const endY = Math.max(padding.top, Math.min(baseY, getY(endMult)));
 
-      // Gradient fill under curve
+      // Gradient fill under curve - couleurs dynamiques
       const fillGradient = ctx.createLinearGradient(0, padding.top, 0, baseY);
       if (isCrashed) {
         fillGradient.addColorStop(0, "rgba(239, 68, 68, 0.15)");
         fillGradient.addColorStop(0.5, "rgba(239, 68, 68, 0.05)");
         fillGradient.addColorStop(1, "rgba(239, 68, 68, 0)");
       } else {
-        fillGradient.addColorStop(0, "rgba(34, 197, 94, 0.12)");
-        fillGradient.addColorStop(0.5, "rgba(34, 197, 94, 0.04)");
-        fillGradient.addColorStop(1, "rgba(34, 197, 94, 0)");
+        fillGradient.addColorStop(0, hexToRgba(primaryColor, 0.12));
+        fillGradient.addColorStop(0.5, hexToRgba(primaryColor, 0.04));
+        fillGradient.addColorStop(1, hexToRgba(primaryColor, 0));
       }
       
       // High resolution curve - use raw multiplier values (no rounding) for smooth curve
@@ -205,7 +255,7 @@ export function CrashGraph({ state, multiplier, crashPoint, countdown, startTime
           s.lastTime = now;
         }
         
-        // Update and draw particles
+        // Update and draw particles - couleurs dynamiques
         s.particles = s.particles.filter(p => {
           p.x += p.vx;
           p.y += p.vy;
@@ -215,30 +265,30 @@ export function CrashGraph({ state, multiplier, crashPoint, countdown, startTime
           if (p.life > 0) {
             ctx.beginPath();
             ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(34, 197, 94, ${p.life * 0.6})`;
+            ctx.fillStyle = hexToRgba(primaryColor, p.life * 0.6);
             ctx.fill();
             return true;
           }
           return false;
         });
         
-        // Pulsing glow
+        // Pulsing glow - couleurs dynamiques
         const pulse = Math.sin(timestamp / 100) * 0.3 + 0.7;
         
         ctx.beginPath();
         ctx.arc(last.x, last.y, 18 * pulse, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(34, 197, 94, ${0.1 * pulse})`;
+        ctx.fillStyle = hexToRgba(primaryColor, 0.1 * pulse);
         ctx.fill();
         
         ctx.beginPath();
         ctx.arc(last.x, last.y, 10 * pulse, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(34, 197, 94, ${0.3 * pulse})`;
+        ctx.fillStyle = hexToRgba(primaryColor, 0.3 * pulse);
         ctx.fill();
         
         ctx.beginPath();
         ctx.arc(last.x, last.y, 5, 0, Math.PI * 2);
-        ctx.fillStyle = "#22c55e";
-        ctx.shadowColor = "#22c55e";
+        ctx.fillStyle = primaryColor;
+        ctx.shadowColor = primaryColor;
         ctx.shadowBlur = 15;
         ctx.fill();
         
@@ -345,8 +395,11 @@ export function CrashGraph({ state, multiplier, crashPoint, countdown, startTime
         {state === "running" && (
           <div className="flex flex-col items-center">
             <span 
-              className="text-[5rem] md:text-[7rem] font-extralight tabular-nums text-green-400 transition-all duration-100"
-              style={{ textShadow: "0 0 60px rgba(34, 197, 94, 0.5)" }}
+              className="text-[5rem] md:text-[7rem] font-extralight tabular-nums transition-all duration-150"
+              style={{ 
+                color: getMultiplierColor(multiplier),
+                textShadow: `0 0 60px ${hexToRgba(getMultiplierColor(multiplier), 0.5)}` 
+              }}
             >
               {multiplier.toFixed(2)}x
             </span>

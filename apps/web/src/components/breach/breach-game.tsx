@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { useBreachStore } from "./use-breach-store";
 import { BreachMatrix } from "./breach-matrix";
 import { BreachBuffer } from "./breach-buffer";
@@ -12,6 +12,7 @@ interface BreachGameProps {
   difficulty?: string;
   targetName?: string;
   potentialLoot?: number;
+  practiceMode?: boolean;
   onComplete: (result: {
     success: boolean;
     sequencesSolved: number;
@@ -25,6 +26,7 @@ export function BreachGame({
   difficulty = "medium",
   targetName = "CIBLE",
   potentialLoot = 0,
+  practiceMode = false,
   onComplete,
   onCancel,
 }: BreachGameProps) {
@@ -34,12 +36,14 @@ export function BreachGame({
     finishStatus,
     sequences,
     getResult,
-    reset,
   } = useBreachStore();
 
-  // Initialiser le jeu au montage
+  // Track seed for randomization
+  const [gameSeed, setGameSeed] = useState(() => Date.now());
+
+  // Initialiser le jeu au montage ou quand le seed change
   useEffect(() => {
-    initGame(difficulty);
+    initGame(difficulty, gameSeed);
     
     // Cleanup au démontage
     return () => {
@@ -48,34 +52,52 @@ export function BreachGame({
         clearInterval(timerInterval);
       }
     };
-  }, [difficulty, initGame]);
+  }, [difficulty, initGame, gameSeed]);
 
-  // Callback quand le jeu est terminé
+  // Calculer le résultat une fois terminé (pour affichage)
+  const [finalResult, setFinalResult] = useState<{
+    success: boolean;
+    sequencesSolved: number;
+    totalSequences: number;
+    lootMultiplier: number;
+  } | null>(null);
+
   useEffect(() => {
-    if (isFinished) {
+    if (isFinished && !finalResult) {
       const result = getResult();
       const lootMultiplier = calculateLootMultiplier(
         result.sequencesSolved,
         result.totalSequences
       );
-
-      // Petit délai pour laisser voir le résultat
-      const timeout = setTimeout(() => {
-        onComplete({
-          success: result.success,
-          sequencesSolved: result.sequencesSolved,
-          totalSequences: result.totalSequences,
-          lootMultiplier,
-        });
-      }, 2000);
-
-      return () => clearTimeout(timeout);
+      setFinalResult({
+        success: result.success,
+        sequencesSolved: result.sequencesSolved,
+        totalSequences: result.totalSequences,
+        lootMultiplier,
+      });
     }
-  }, [isFinished, getResult, onComplete]);
+  }, [isFinished, getResult, finalResult]);
 
+  // Reset finalResult quand on rejoue
+  useEffect(() => {
+    if (!isFinished) {
+      setFinalResult(null);
+    }
+  }, [isFinished]);
+
+  // Fermer et envoyer le résultat (mode normal uniquement)
+  const handleClose = useCallback(() => {
+    if (finalResult && !practiceMode) {
+      onComplete(finalResult);
+    } else if (onCancel) {
+      onCancel();
+    }
+  }, [finalResult, practiceMode, onComplete, onCancel]);
+
+  // Rejouer avec un nouveau puzzle
   const handleRetry = useCallback(() => {
-    reset();
-  }, [reset]);
+    setGameSeed(Date.now());
+  }, []);
 
   const solved = sequences.filter((s) => s.status === SequenceStatus.SOLVED).length;
   const total = sequences.length;
@@ -90,19 +112,23 @@ export function BreachGame({
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[var(--line)] pb-4">
         <div>
-          <h2 className="text-[0.75rem] uppercase tracking-widest text-green-400">
-            breach protocol
+          <h2 className={`text-[0.75rem] uppercase tracking-widest ${practiceMode ? "text-yellow-400" : "text-green-400"}`}>
+            {practiceMode ? "entrainement" : "breach protocol"}
           </h2>
           <p className="text-[0.65rem] text-[var(--text-muted)] mt-1">
-            cible: <span className="text-[var(--text)]">{targetName}</span>
+            {practiceMode ? (
+              <>difficulte: <span className="text-[var(--text)]">{difficulty}</span></>
+            ) : (
+              <>cible: <span className="text-[var(--text)]">{targetName}</span></>
+            )}
           </p>
         </div>
-        {onCancel && !isFinished && (
+        {!isFinished && onCancel && (
           <button
             onClick={onCancel}
             className="text-[0.65rem] uppercase tracking-wider text-red-400 hover:text-red-300 transition-colors"
           >
-            annuler
+            {practiceMode ? "quitter" : "annuler"}
           </button>
         )}
       </div>
@@ -181,11 +207,40 @@ export function BreachGame({
         </div>
       )}
 
+      {/* Action buttons when finished */}
+      {isFinished && (
+        <div className="flex gap-3">
+          {practiceMode && (
+            <button
+              onClick={handleRetry}
+              className="flex-1 py-3 text-[0.8rem] uppercase tracking-widest border border-yellow-500/50 text-yellow-400 hover:border-yellow-500 hover:bg-yellow-500/10 transition-all"
+            >
+              rejouer
+            </button>
+          )}
+          <button
+            onClick={handleClose}
+            className={`${practiceMode ? "flex-1" : "w-full"} py-3 text-[0.8rem] uppercase tracking-widest border transition-all ${
+              practiceMode 
+                ? "border-[var(--line)] text-[var(--text-muted)] hover:border-[var(--text)] hover:text-[var(--text)]"
+                : solved > 0
+                  ? "border-green-500/50 text-green-400 hover:border-green-500 hover:bg-green-500/10"
+                  : "border-red-500/50 text-red-400 hover:border-red-500 hover:bg-red-500/10"
+            }`}
+          >
+            {practiceMode ? "quitter" : "continuer"}
+          </button>
+        </div>
+      )}
+
       {/* Instructions */}
       {!isFinished && (
         <div className="text-[0.6rem] text-[var(--text-muted)] text-center space-y-1">
           <p>selectionne les codes dans l'ordre des sequences</p>
           <p>tu alternes entre lignes et colonnes a chaque selection</p>
+          {practiceMode && (
+            <p className="text-yellow-400/70 mt-2">mode entrainement - aucun effet sur ton compte</p>
+          )}
         </div>
       )}
     </div>

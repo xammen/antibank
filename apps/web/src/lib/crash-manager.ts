@@ -44,8 +44,8 @@ interface PublicState {
 }
 
 // Durées en ms
-const COUNTDOWN_MS = CRASH_CONFIG.COUNTDOWN_SECONDS * 1000; // 15s de countdown
-const POST_CRASH_DELAY_MS = 5000; // 5s après crash avant nouvelle partie
+const COUNTDOWN_MS = CRASH_CONFIG.COUNTDOWN_SECONDS * 1000; // 10s de countdown
+const POST_CRASH_DELAY_MS = CRASH_CONFIG.POST_CRASH_DELAY_MS; // 3s après crash avant nouvelle partie
 const MIN_PLAYERS_FOR_SKIP = 2;
 
 class CrashGameManager {

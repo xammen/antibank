@@ -44,7 +44,7 @@ interface BreachState {
   timerInterval: ReturnType<typeof setInterval> | null;
 
   // Actions
-  initGame: (difficulty?: string, seed?: number) => void;
+  initGame: (difficulty?: string, seed?: number | null) => void;
   startGame: () => void;
   selectCell: (cell: MatrixCell) => void;
   setHoveredCell: (cell: MatrixCell | null) => void;
@@ -79,7 +79,7 @@ export const useBreachStore = create<BreachState>()((set, get) => ({
   timerInterval: null,
 
   // Actions
-  initGame: (difficulty = "medium", seed?: number) => {
+  initGame: (difficulty = "medium", seed?: number | null) => {
     const { timerInterval } = get();
     if (timerInterval) {
       clearInterval(timerInterval);
