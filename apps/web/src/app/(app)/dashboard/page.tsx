@@ -3,9 +3,10 @@ import { type ClickerIcon } from "@/components/clicker";
 import { VoiceStatus } from "@/components/voice-status";
 import { ClickerArea } from "@/components/clicker-area";
 import { Leaderboard } from "@/components/leaderboard";
+import { DahkaCoinPriceWidget } from "@/components/dahkacoin-price-widget";
+import { DahkaCoinLeaderboard } from "@/components/dahkacoin-leaderboard";
 import { prisma } from "@antibank/db";
 import { calculateClickBonus, calculatePassiveBonus, calculateVocalBonus } from "@/lib/upgrades";
-import { getCurrentPrice } from "@/actions/dahkacoin";
 import Link from "next/link";
 
 export default async function Dashboard() {
@@ -14,16 +15,13 @@ export default async function Dashboard() {
   // Session garantie par le layout parent
   const userId = session!.user.id;
 
-  // Récupérer le user avec ses upgrades + dahkaCoins
-  const [user, dcPrice] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: userId },
-      include: { upgrades: true },
-    }),
-    getCurrentPrice(),
-  ]);
+  // Récupérer le user avec ses upgrades
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { upgrades: true },
+  });
 
-  const upgradeData = user?.upgrades.map((u) => ({
+  const upgradeData = user?.upgrades.map((u: { upgradeId: string; level: number }) => ({
     upgradeId: u.upgradeId,
     level: u.level,
   })) || [];
@@ -35,14 +33,18 @@ export default async function Dashboard() {
   const clickValue = 0.01 + clickBonus;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const clickerIcon = ((user as any)?.clickerIcon || "cookie") as ClickerIcon;
-  const dahkaCoins = user?.dahkaCoins ? Number(user.dahkaCoins) : 0;
-  const dcValue = dahkaCoins * dcPrice.price;
 
   return (
     <main className="min-h-screen relative">
-      {/* Leaderboard - Fixed on left for desktop, below content on mobile */}
-      <aside className="hidden lg:block fixed left-6 top-[8vh] w-[280px] z-10">
+      {/* Leaderboard + DahkaCoin Price - Fixed on left for desktop */}
+      <aside className="hidden lg:block fixed left-6 top-[8vh] w-[280px] z-10 flex flex-col gap-3">
         <Leaderboard />
+        <DahkaCoinPriceWidget />
+      </aside>
+
+      {/* DahkaCoin Leaderboard - Fixed on right for desktop */}
+      <aside className="hidden lg:block fixed right-6 top-[8vh] w-[280px] z-10">
+        <DahkaCoinLeaderboard />
       </aside>
 
       {/* Main content - centered */}
@@ -58,23 +60,6 @@ export default async function Dashboard() {
             voiceStatus={<VoiceStatus />}
             stats={
               <div className="flex flex-col gap-3 pt-8 border-t border-[var(--line)]">
-                {/* DahkaCoin Widget */}
-                {dahkaCoins > 0 && (
-                  <Link 
-                    href="/dahkacoin"
-                    className="flex items-center justify-between p-3 border border-purple-500/30 bg-purple-500/5 hover:border-purple-500/50 transition-all"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-purple-400">📈</span>
-                      <span className="text-[0.7rem] uppercase tracking-widest text-purple-400">dahkacoin</span>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-mono text-purple-400">{dahkaCoins.toFixed(2)} dc</p>
-                      <p className="text-[0.65rem] text-[var(--text-muted)]">≈ {dcValue.toFixed(2)}€</p>
-                    </div>
-                  </Link>
-                )}
-                
                 {/* Stats grid */}
                 <div className="grid grid-cols-3 gap-3 opacity-60">
                   <div className="text-center p-3 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
@@ -133,9 +118,11 @@ export default async function Dashboard() {
             }
           />
 
-          {/* Leaderboard - Only visible on mobile (below lg breakpoint) */}
-          <div className="lg:hidden">
+          {/* Leaderboards - Only visible on mobile (below lg breakpoint) */}
+          <div className="lg:hidden flex flex-col gap-4">
             <Leaderboard />
+            <DahkaCoinPriceWidget />
+            <DahkaCoinLeaderboard />
           </div>
         </div>
       </div>
