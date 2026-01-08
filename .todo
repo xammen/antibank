@@ -4,13 +4,22 @@
 - [x] Phase 1: Auth + Dashboard + Clicker
 - [x] Phase 2: Casino (Crash, Des, PFC)
 - [x] Phase 3: Heist Quest System
-- [x] Phase 5: DahkaCoin (partial - needs chart)
+- [x] Phase 5: DahkaCoin (complete - wave system, live feed, whales, market stats, supply pressure)
 
 ## Performance Optimizations Done
 - [x] Crash game: optimistic bet/cashout, smooth graph
 - [x] Shop: optimistic state (instant purchase)
 - [x] Dice: parallel animation + server, no revalidatePath
 - [x] PFC: parallel animation + server, no revalidatePath
+- [x] Navigation: persistent layout with route groups for instant transitions
+
+## UI Improvements Done
+- [x] Crash bet panel: sliders for bet amount + auto-cashout with probability display
+- [x] DahkaCoin: full redesign with live feed, whale leaderboard, market stats, wider layout
+
+## Algorithm Improvements Done
+- [x] DahkaCoin wave system: 5-15 min trend phases (visible bull/bear cycles)
+- [x] DahkaCoin supply pressure: market cap >5000€ adds selling pressure, >20000€ triggers dumps
 
 ## Remaining Roadmap
 - [ ] Phase 3b: Braquages + Bounties (robbery system exists, bounties TODO)

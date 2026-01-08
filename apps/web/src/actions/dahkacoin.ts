@@ -99,19 +99,19 @@ interface TradeResult {
 // PHASE CONFIG - Dynamic probabilities
 // ============================================
 
-// Phase durations - designed for realistic crypto feel
-// Bull runs are SHORT and explosive, bear markets DRAG ON
+// Phase durations - designed for visible trend waves (5-15 min each)
+// Creates clear bull/bear cycles that players can recognize and trade
 const PHASE_DURATIONS: Record<MarketPhase, { min: number; max: number }> = {
-  accumulation: { min: 90, max: 180 },   // 1.5-3min - time to position, quiet
-  markup: { min: 45, max: 90 },          // 45s-1.5min - building momentum
-  euphoria: { min: 20, max: 45 },        // 20-45s - SHORT! FOMO, explosive but brief
-  distribution: { min: 60, max: 120 },   // 1-2min - choppy, whales exiting
-  decline: { min: 90, max: 150 },        // 1.5-2.5min - slow bleed
-  capitulation: { min: 120, max: 240 },  // 2-4min - LONG pain, despair
-  recovery: { min: 90, max: 180 },       // 1.5-3min - slow rebuild, hope returning
+  accumulation: { min: 300, max: 600 },   // 5-10min - time to position, quiet sideways
+  markup: { min: 300, max: 540 },         // 5-9min - clear uptrend, building momentum
+  euphoria: { min: 120, max: 300 },       // 2-5min - explosive peak, FOMO zone
+  distribution: { min: 240, max: 480 },   // 4-8min - choppy top, whales exiting
+  decline: { min: 300, max: 600 },        // 5-10min - clear downtrend, slow bleed
+  capitulation: { min: 360, max: 720 },   // 6-12min - LONG pain, despair, opportunity
+  recovery: { min: 300, max: 540 },       // 5-9min - slow rebuild, hope returning
 };
 
-const EVENT_CHECK_INTERVAL = { min: 45, max: 75 }; // 45-75s between event checks
+const EVENT_CHECK_INTERVAL = { min: 60, max: 120 }; // 1-2min between event checks
 
 // Base transition probabilities - modified by momentum and price
 function calculatePhaseTransitions(
@@ -618,6 +618,43 @@ export async function tickPrice(): Promise<{
     const reversionStrength = 0.0005;
     priceChange += -deviationFromFair * reversionStrength * deltaSeconds;
     
+    // SUPPLY PRESSURE - when total market cap gets too high, add selling pressure
+    // This simulates "the market can't sustain this valuation"
+    // Target: market cap around 5000€ is healthy, >10000€ triggers pressure
+    // Check every 10 seconds to avoid DB spam
+    if (deltaSeconds >= 5) {
+      try {
+        const supplyResult = await prisma.$queryRaw<{ total: string }[]>`
+          SELECT COALESCE(SUM("dahkaCoins"), 0)::text as total FROM "User" WHERE "dahkaCoins" > 0.01
+        `;
+        const totalSupply = parseFloat(supplyResult[0]?.total || "0");
+        const marketCap = totalSupply * state.price;
+        
+        // Thresholds: 5000€ healthy, 10000€ pressure starts, 20000€ heavy pressure
+        const HEALTHY_CAP = 5000;
+        const PRESSURE_CAP = 10000;
+        const HEAVY_CAP = 20000;
+        
+        if (marketCap > HEALTHY_CAP) {
+          // Progressive pressure: 0% at 5K, ~1% at 10K, ~3% at 20K+
+          const excessRatio = (marketCap - HEALTHY_CAP) / HEALTHY_CAP;
+          const supplyPressure = Math.min(0.03, excessRatio * 0.01);
+          priceChange -= supplyPressure * deltaSeconds;
+          
+          // If market cap is extreme (>20K), chance to trigger whale_dump
+          if (marketCap > HEAVY_CAP && state.activeEvent === 'none' && Math.random() < 0.1) {
+            state.activeEvent = 'whale_dump';
+            state.eventStartTime = now;
+            state.eventDuration = randomInRange(20, 45) * 1000;
+            state.eventDirection = -1;
+            state.recentCrashes++;
+          }
+        }
+      } catch {
+        // Ignore supply pressure calculation errors
+      }
+    }
+    
     // Random spike (5% chance)
     if (Math.random() < 0.05) {
       priceChange += (Math.random() - 0.5) * volatility.max * volatilityMod;
@@ -935,6 +972,157 @@ export async function getDCTransactions(limit: number = 20): Promise<{
     price: parseFloat(tx.price),
     createdAt: tx.createdAt,
   }));
+}
+
+// ============================================
+// LIVE FEED & WHALES
+// ============================================
+
+interface LiveTrade {
+  id: string;
+  username: string;
+  type: "buy" | "sell";
+  dcAmount: number;
+  euroAmount: number;
+  price: number;
+  createdAt: Date;
+}
+
+interface WhaleHolder {
+  username: string;
+  dcBalance: number;
+  euroValue: number;
+  avgPrice: number | null;
+  profitLoss: number | null;
+  profitPercent: number | null;
+}
+
+interface MarketStats {
+  totalSupply: number;
+  marketCap: number;
+  holders: number;
+  volume24h: number;
+  buyVolume24h: number;
+  sellVolume24h: number;
+}
+
+export async function getLiveFeed(limit: number = 20): Promise<LiveTrade[]> {
+  const trades = await prisma.$queryRaw<{
+    id: string;
+    username: string;
+    type: string;
+    dcAmount: string;
+    euroAmount: string;
+    price: string;
+    createdAt: Date;
+  }[]>`
+    SELECT 
+      t.id,
+      u.name as username,
+      t.type,
+      t."dcAmount"::text,
+      t."euroAmount"::text,
+      t.price::text,
+      t."createdAt"
+    FROM "DahkaCoinTx" t
+    JOIN "User" u ON t."userId" = u.id
+    ORDER BY t."createdAt" DESC
+    LIMIT ${limit}
+  `;
+
+  return trades.map(t => ({
+    id: t.id,
+    username: t.username || "anon",
+    type: t.type as "buy" | "sell",
+    dcAmount: parseFloat(t.dcAmount),
+    euroAmount: parseFloat(t.euroAmount),
+    price: parseFloat(t.price),
+    createdAt: t.createdAt,
+  }));
+}
+
+export async function getWhaleLeaderboard(limit: number = 10): Promise<WhaleHolder[]> {
+  const state = await getMarketState();
+  const currentPrice = state.price;
+
+  const whales = await prisma.$queryRaw<{
+    username: string;
+    dcBalance: string;
+    avgPrice: string | null;
+  }[]>`
+    SELECT 
+      name as username,
+      "dahkaCoins"::text as "dcBalance",
+      "dcAvgBuyPrice"::text as "avgPrice"
+    FROM "User"
+    WHERE "dahkaCoins" > 0.01
+    ORDER BY "dahkaCoins" DESC
+    LIMIT ${limit}
+  `;
+
+  return whales.map(w => {
+    const dcBalance = parseFloat(w.dcBalance);
+    const avgPrice = w.avgPrice ? parseFloat(w.avgPrice) : null;
+    const euroValue = dcBalance * currentPrice;
+    
+    let profitLoss: number | null = null;
+    let profitPercent: number | null = null;
+    
+    if (avgPrice !== null && avgPrice > 0) {
+      profitLoss = (currentPrice - avgPrice) * dcBalance;
+      profitPercent = ((currentPrice - avgPrice) / avgPrice) * 100;
+    }
+
+    return {
+      username: w.username || "anon",
+      dcBalance,
+      euroValue,
+      avgPrice,
+      profitLoss,
+      profitPercent,
+    };
+  });
+}
+
+export async function getMarketStats(): Promise<MarketStats> {
+  const state = await getMarketState();
+  const currentPrice = state.price;
+
+  // Total supply = sum of all user DC holdings
+  const supplyResult = await prisma.$queryRaw<{ total: string; holders: string }[]>`
+    SELECT 
+      COALESCE(SUM("dahkaCoins"), 0)::text as total,
+      COUNT(*)::text as holders
+    FROM "User"
+    WHERE "dahkaCoins" > 0.01
+  `;
+
+  const totalSupply = parseFloat(supplyResult[0]?.total || "0");
+  const holders = parseInt(supplyResult[0]?.holders || "0");
+  const marketCap = totalSupply * currentPrice;
+
+  // 24h volume
+  const volumeResult = await prisma.$queryRaw<{ 
+    total: string; 
+    buyVol: string; 
+    sellVol: string 
+  }[]>`
+    SELECT 
+      COALESCE(SUM("euroAmount"), 0)::text as total,
+      COALESCE(SUM(CASE WHEN type = 'buy' THEN "euroAmount" ELSE 0 END), 0)::text as "buyVol",
+      COALESCE(SUM(CASE WHEN type = 'sell' THEN "euroAmount" ELSE 0 END), 0)::text as "sellVol"
+    FROM "DahkaCoinTx"
+    WHERE "createdAt" > NOW() - INTERVAL '24 hours'
+  `;
+
+  return {
+    totalSupply,
+    marketCap,
+    holders,
+    volume24h: parseFloat(volumeResult[0]?.total || "0"),
+    buyVolume24h: parseFloat(volumeResult[0]?.buyVol || "0"),
+    sellVolume24h: parseFloat(volumeResult[0]?.sellVol || "0"),
+  };
 }
 
 // Admin: Reset market state (for debugging)

@@ -33,6 +33,92 @@ function getCashoutButtonColor(mult: number): { bg: string; shadow: string; text
   }
 }
 
+// Slider component réutilisable
+function Slider({
+  value,
+  onChange,
+  min,
+  max,
+  step,
+  label,
+  formatValue,
+  quickValues,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  min: number;
+  max: number;
+  step: number;
+  label: string;
+  formatValue: (v: number) => string;
+  quickValues?: { value: number; label: string }[];
+}) {
+  const percentage = ((value - min) / (max - min)) * 100;
+  
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <label className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">
+          {label}
+        </label>
+        <span className="text-sm font-mono text-[var(--text)]">
+          {formatValue(value)}
+        </span>
+      </div>
+      
+      {/* Slider track */}
+      <div className="relative h-8 flex items-center">
+        <div className="absolute inset-x-0 h-1.5 bg-[var(--line)] rounded-full">
+          <div 
+            className="h-full bg-[var(--text)] rounded-full transition-all duration-100"
+            style={{ width: `${percentage}%` }}
+          />
+        </div>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          className="absolute inset-x-0 w-full h-8 opacity-0 cursor-pointer"
+        />
+        {/* Thumb indicator */}
+        <div 
+          className="absolute w-4 h-4 bg-[var(--text)] rounded-full shadow-[0_0_10px_rgba(255,255,255,0.3)] pointer-events-none transition-all duration-100"
+          style={{ left: `calc(${percentage}% - 8px)` }}
+        />
+      </div>
+      
+      {/* Quick values */}
+      {quickValues && (
+        <div className="flex gap-1">
+          {quickValues.map((qv) => (
+            <button
+              key={qv.value}
+              onClick={() => onChange(qv.value)}
+              className={`flex-1 py-1.5 text-xs border transition-colors ${
+                value === qv.value 
+                  ? "border-[var(--text)] bg-[rgba(255,255,255,0.05)]" 
+                  : "border-[var(--line)] text-[var(--text-muted)] hover:border-[var(--text-muted)] hover:bg-[rgba(255,255,255,0.02)]"
+              }`}
+            >
+              {qv.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Probabilité de crash avant un multiplicateur donné
+function getCrashProbability(multiplier: number): number {
+  // P(crash before x) = 1 - 1/x (pour x >= 1)
+  if (multiplier <= 1) return 0;
+  return 1 - (1 / multiplier);
+}
+
 export function CrashBetPanel({
   gameState,
   userBet,
@@ -40,8 +126,9 @@ export function CrashBetPanel({
   userBalance,
   onCashOut,
 }: CrashBetPanelProps) {
-  const [betAmount, setBetAmount] = useState("1");
-  const [autoCashoutAt, setAutoCashoutAt] = useState("");
+  const [betAmount, setBetAmount] = useState(1);
+  const [autoCashoutAt, setAutoCashoutAt] = useState(2);
+  const [autoCashoutEnabled, setAutoCashoutEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { setBalance } = useBalance(userBalance);
   const autoCashoutTriggered = useRef(false);
@@ -91,17 +178,17 @@ export function CrashBetPanel({
       gameState === "running" &&
       effectiveBet &&
       !effectiveCashedOut &&
-      autoCashoutAt &&
+      autoCashoutEnabled &&
+      autoCashoutAt > 1 &&
       !autoCashoutTriggered.current
     ) {
-      const target = parseFloat(autoCashoutAt);
-      if (!isNaN(target) && target > 1 && currentMultiplier >= target) {
+      if (currentMultiplier >= autoCashoutAt) {
         autoCashoutTriggered.current = true;
         // Utiliser handleCashOut qui fait l'update optimiste
         handleCashOut();
       }
     }
-  }, [gameState, effectiveBet, effectiveCashedOut, currentMultiplier, autoCashoutAt]);
+  }, [gameState, effectiveBet, effectiveCashedOut, currentMultiplier, autoCashoutAt, autoCashoutEnabled]);
 
   // Reset auto-cashout trigger when game ends
   useEffect(() => {
@@ -117,18 +204,19 @@ export function CrashBetPanel({
     }
   }, [gameState]);
 
+  const maxBet = Math.min(10000, parseFloat(userBalance));
+
   const handleBet = () => {
     if (isBetting) return; // Prevent double-click
     
     setError(null);
     
-    const amount = parseFloat(betAmount);
-    if (isNaN(amount) || amount <= 0) {
+    if (betAmount <= 0) {
       setError("montant invalide");
       return;
     }
     
-    if (amount > parseFloat(userBalance)) {
+    if (betAmount > parseFloat(userBalance)) {
       setError("solde insuffisant");
       return;
     }
@@ -137,12 +225,12 @@ export function CrashBetPanel({
     setIsBetting(true);
     
     // UI optimiste - affiche immédiatement comme si bet placé
-    setOptimisticBet({ bet: amount });
-    const newBalance = parseFloat(userBalance) - amount;
+    setOptimisticBet({ bet: betAmount });
+    const newBalance = parseFloat(userBalance) - betAmount;
     setBalance(newBalance.toFixed(2));
     
     // Fire and forget - serveur confirme en background
-    placeCrashBet(amount).then(result => {
+    placeCrashBet(betAmount).then(result => {
       setIsBetting(false);
       if (!result.success) {
         setError(result.error || "erreur");
@@ -162,13 +250,13 @@ export function CrashBetPanel({
     setIsCashingOut(true);
     
     // Calcul et affichage immédiat
-    const betAmount = bet.bet;
+    const betAmt = bet.bet;
     const multiplier = currentMultiplier;
-    const profit = Math.floor((betAmount * multiplier * 0.95 - betAmount) * 100) / 100;
+    const profit = Math.floor((betAmt * multiplier * 0.95 - betAmt) * 100) / 100;
     
     // UI optimiste - affiche immédiatement comme si cashout réussi
     setOptimisticCashout({ multiplier, profit });
-    const newBalance = parseFloat(userBalance) + betAmount + profit;
+    const newBalance = parseFloat(userBalance) + betAmt + profit;
     setBalance(newBalance.toFixed(2));
     
     // Fire and forget - serveur confirme en background
@@ -186,7 +274,9 @@ export function CrashBetPanel({
     ? (effectiveBet.bet * currentMultiplier * 0.95).toFixed(2)
     : null;
 
-  const quickBets = [0.5, 1, 2, 5, 10];
+  // Probabilités pour l'affichage
+  const crashProbBefore = getCrashProbability(autoCashoutAt);
+  const survivalProb = 1 - crashProbBefore;
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -200,53 +290,97 @@ export function CrashBetPanel({
       {/* Si pas de bet en cours */}
       {!effectiveBet && gameState === "waiting" && (
         <>
-          {/* Input mise */}
-          <div className="flex flex-col gap-2">
-            <label className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">
-              mise
-            </label>
-            <input
-              type="number"
-              min="0.5"
-              step="0.5"
-              value={betAmount}
-              onChange={(e) => setBetAmount(e.target.value)}
-              className="w-full px-3 py-2 bg-transparent border border-[var(--line)] text-sm font-mono
-                focus:outline-none focus:border-[var(--text-muted)] text-[var(--text)]"
-              placeholder="1.00"
-            />
-          </div>
+          {/* Slider mise */}
+          <Slider
+            value={betAmount}
+            onChange={setBetAmount}
+            min={0.5}
+            max={maxBet}
+            step={0.5}
+            label="mise"
+            formatValue={(v) => `${v.toFixed(2)}€`}
+            quickValues={[
+              { value: 0.5, label: "0.5" },
+              { value: 1, label: "1" },
+              { value: 2, label: "2" },
+              { value: 5, label: "5" },
+              { value: 10, label: "10" },
+            ]}
+          />
 
-          {/* Quick bets */}
-          <div className="flex gap-1">
-            {quickBets.map((amount) => (
+          {/* Auto cashout toggle + slider */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <label className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">
+                auto cashout
+              </label>
               <button
-                key={amount}
-                onClick={() => setBetAmount(amount.toString())}
-                className="flex-1 py-1.5 text-xs border border-[var(--line)] 
-                  hover:border-[var(--text-muted)] hover:bg-[rgba(255,255,255,0.02)] 
-                  transition-colors text-[var(--text-muted)]"
+                onClick={() => setAutoCashoutEnabled(!autoCashoutEnabled)}
+                className={`w-10 h-5 rounded-full transition-colors relative ${
+                  autoCashoutEnabled ? "bg-[var(--text)]" : "bg-[var(--line)]"
+                }`}
               >
-                {amount}
+                <div
+                  className={`absolute top-0.5 w-4 h-4 rounded-full transition-all ${
+                    autoCashoutEnabled 
+                      ? "left-5 bg-[var(--bg)]" 
+                      : "left-0.5 bg-[var(--text-muted)]"
+                  }`}
+                />
               </button>
-            ))}
-          </div>
-
-          {/* Auto cashout */}
-          <div className="flex flex-col gap-2">
-            <label className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">
-              auto cashout
-            </label>
-            <input
-              type="number"
-              min="1.1"
-              step="0.1"
-              value={autoCashoutAt}
-              onChange={(e) => setAutoCashoutAt(e.target.value)}
-              className="w-full px-3 py-2 bg-transparent border border-[var(--line)] text-sm font-mono
-                focus:outline-none focus:border-[var(--text-muted)] text-[var(--text)]"
-              placeholder="x2.0"
-            />
+            </div>
+            
+            {autoCashoutEnabled && (
+              <>
+                <Slider
+                  value={autoCashoutAt}
+                  onChange={setAutoCashoutAt}
+                  min={1.1}
+                  max={100}
+                  step={0.1}
+                  label=""
+                  formatValue={(v) => `x${v.toFixed(2)}`}
+                  quickValues={[
+                    { value: 1.5, label: "1.5x" },
+                    { value: 2, label: "2x" },
+                    { value: 3, label: "3x" },
+                    { value: 5, label: "5x" },
+                    { value: 10, label: "10x" },
+                  ]}
+                />
+                
+                {/* Probabilités - bien visibles */}
+                <div className="grid grid-cols-2 gap-2 p-3 border border-[var(--line)] bg-[rgba(255,255,255,0.02)]">
+                  <div className="text-center">
+                    <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-1">
+                      chance de crash avant
+                    </p>
+                    <p className="text-lg font-mono text-red-400">
+                      {(crashProbBefore * 100).toFixed(1)}%
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-1">
+                      chance de succès
+                    </p>
+                    <p className="text-lg font-mono text-green-400">
+                      {(survivalProb * 100).toFixed(1)}%
+                    </p>
+                  </div>
+                  <div className="col-span-2 text-center pt-2 border-t border-[var(--line)]">
+                    <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-1">
+                      gain espéré (si succès)
+                    </p>
+                    <p className="text-lg font-mono text-[var(--text)]">
+                      {(betAmount * autoCashoutAt * 0.95).toFixed(2)}€
+                      <span className="text-[var(--text-muted)] text-xs ml-1">
+                        (+{((autoCashoutAt * 0.95 - 1) * 100).toFixed(0)}%)
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Bet button - Premium design */}
@@ -263,7 +397,7 @@ export function CrashBetPanel({
               ${isBetting ? "animate-pulse" : ""}
             `}
           >
-            {isBetting ? "..." : "parier"}
+            {isBetting ? "..." : `parier ${betAmount.toFixed(2)}€`}
           </button>
         </>
       )}
@@ -272,10 +406,10 @@ export function CrashBetPanel({
       {effectiveBet && !effectiveCashedOut && gameState === "waiting" && (
         <div className="text-center py-6">
           <p className="text-[0.65rem] uppercase tracking-widest text-[var(--text-muted)]">mise</p>
-          <p className="text-xl font-mono mt-1">{effectiveBet.bet}</p>
-          {autoCashoutAt && (
+          <p className="text-xl font-mono mt-1">{effectiveBet.bet}€</p>
+          {autoCashoutEnabled && autoCashoutAt > 1 && (
             <p className="text-xs text-[var(--text-muted)] mt-2">
-              auto @ x{parseFloat(autoCashoutAt).toFixed(2)}
+              auto @ x{autoCashoutAt.toFixed(2)}
             </p>
           )}
         </div>

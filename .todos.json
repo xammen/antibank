@@ -1,3 +1,14 @@
 {
-  "todos": []
+  "todos": [],
+  "completed": [
+    "Crash bet panel: slider for bet amount",
+    "Crash bet panel: slider for auto-cashout",
+    "Crash bet panel: probability display",
+    "DahkaCoin: wave system algorithm (5-15 min phases)",
+    "DahkaCoin: supply pressure system",
+    "DahkaCoin: live feed query",
+    "DahkaCoin: whale leaderboard query", 
+    "DahkaCoin: market stats query",
+    "DahkaCoin: UI redesign with all new features"
+  ]
 }
