@@ -12,9 +12,9 @@ import {
 } from "./heist";
 import { HEIST_CONFIG } from "@/lib/heist-config";
 
-// Config braquage
-const ROBBERY_COOLDOWN_SUCCESS_MS = 25 * 60 * 1000; // 25 min si reussi
-const ROBBERY_COOLDOWN_FAIL_MS = 15 * 60 * 1000; // 15 min si rate
+// Config braquage - BETA: cooldown réduit à 2 minutes
+const ROBBERY_COOLDOWN_SUCCESS_MS = 2 * 60 * 1000; // 2 min pour beta (25 min en prod)
+const ROBBERY_COOLDOWN_FAIL_MS = 2 * 60 * 1000; // 2 min pour beta (15 min en prod)
 const MIN_VICTIM_BALANCE = 20; // 20 euros minimum pour se faire braquer
 const BASE_SUCCESS_CHANCE = 40; // 40% de base
 const STEAL_PERCENT_MIN = 10; // 10% minimum
@@ -118,7 +118,17 @@ export async function getRobberyCooldown(): Promise<{ canRob: boolean; cooldownE
   return { canRob, cooldownEnds: canRob ? undefined : cooldownEnds };
 }
 
-export async function attemptRobbery(victimId: string): Promise<RobberyResult> {
+// Interface pour le résultat du mini-jeu Breach
+interface BreachResult {
+  sequencesSolved: number;
+  totalSequences: number;
+  lootMultiplier: number;
+}
+
+export async function attemptRobbery(
+  victimId: string, 
+  breachResult?: BreachResult
+): Promise<RobberyResult> {
   const session = await auth();
   if (!session?.user?.id) {
     return { success: false, error: "non connecte" };
@@ -181,24 +191,37 @@ export async function attemptRobbery(victimId: string): Promise<RobberyResult> {
     return { success: false, error: "tu peux pas braquer quelqu'un de plus pauvre que toi" };
   }
 
-  // Calculer les chances de succes
-  let successChance = BASE_SUCCESS_CHANCE;
-  
-  // Bonus si la cible est 5x plus riche
-  if (victimBalance >= robberBalance * 5) {
-    successChance += 10;
-  }
+  // NOUVEAU: Le succès est déterminé par le mini-jeu Breach
+  // Si breachResult est fourni, utiliser son résultat
+  // Sinon, utiliser l'ancien système de dés (pour rétrocompatibilité)
+  let robberySuccess: boolean;
+  let successChance: number;
+  let roll: number;
 
-  // Lancer le de
-  const roll = Math.floor(Math.random() * 100) + 1; // 1-100
-  const robberySuccess = roll <= successChance;
+  if (breachResult) {
+    // Nouveau système: Breach détermine le succès
+    robberySuccess = breachResult.sequencesSolved > 0;
+    successChance = Math.round((breachResult.sequencesSolved / breachResult.totalSequences) * 100);
+    roll = breachResult.sequencesSolved; // Pour l'affichage
+  } else {
+    // Ancien système: dés (fallback)
+    successChance = BASE_SUCCESS_CHANCE;
+    if (victimBalance >= robberBalance * 5) {
+      successChance += 10;
+    }
+    roll = Math.floor(Math.random() * 100) + 1;
+    robberySuccess = roll <= successChance;
+  }
 
   let amount: number;
   const now = new Date();
 
   if (robberySuccess) {
     // Succes: voler 10-20% de la balance de la victime
-    const stealPercent = STEAL_PERCENT_MIN + Math.random() * (STEAL_PERCENT_MAX - STEAL_PERCENT_MIN);
+    // Le multiplicateur du Breach affecte le butin (0.4 à 1.1)
+    const lootMultiplier = breachResult?.lootMultiplier ?? 1;
+    const baseStealPercent = STEAL_PERCENT_MIN + Math.random() * (STEAL_PERCENT_MAX - STEAL_PERCENT_MIN);
+    const stealPercent = baseStealPercent * lootMultiplier;
     const grossAmount = Math.floor(victimBalance * stealPercent) / 100;
     const tax = Math.floor(grossAmount * SYSTEM_TAX_PERCENT) / 100;
     amount = Math.floor((grossAmount - tax) * 100) / 100;

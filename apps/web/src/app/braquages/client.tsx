@@ -17,6 +17,7 @@ import {
   createBounty,
   getBountyTargets,
 } from "@/actions/bounty";
+import { BreachGame } from "@/components/breach";
 
 interface RobberyTarget {
   id: string;
@@ -115,6 +116,11 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
   } | null>(initialData.antibankInfo);
   const [isRobbingAntibank, setIsRobbingAntibank] = useState(false);
 
+  // Breach mini-game state
+  const [showBreach, setShowBreach] = useState(false);
+  const [breachTarget, setBreachTarget] = useState<RobberyTarget | null>(null);
+  const [breachDifficulty, setBreachDifficulty] = useState<string>("medium");
+
   const loadData = useCallback(async () => {
     const [targetsRes, cooldownRes, historyRes, globalHistoryRes, bountiesRes, antibankRes, heistRes] = await Promise.all([
       getRobberyTargets(),
@@ -186,6 +192,63 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
     return () => clearInterval(interval);
   }, [cooldownEnds]);
 
+  // Ouvre le mini-jeu Breach pour une cible
+  const handleStartBreach = (target: RobberyTarget) => {
+    if (!canRob || isRobbing) return;
+    
+    // Déterminer la difficulté en fonction de la balance de la cible
+    let difficulty = "easy";
+    if (target.balance >= 2000) {
+      difficulty = "hard";
+    } else if (target.balance >= 500) {
+      difficulty = "medium";
+    }
+    
+    setBreachTarget(target);
+    setBreachDifficulty(difficulty);
+    setShowBreach(true);
+    setLastResult(null);
+  };
+
+  // Callback quand le mini-jeu Breach est terminé
+  const handleBreachComplete = async (breachResult: {
+    success: boolean;
+    sequencesSolved: number;
+    totalSequences: number;
+    lootMultiplier: number;
+  }) => {
+    if (!breachTarget) return;
+    
+    setShowBreach(false);
+    setIsRobbing(breachTarget.id);
+
+    // Envoyer le résultat au serveur
+    const result = await attemptRobbery(breachTarget.id, {
+      sequencesSolved: breachResult.sequencesSolved,
+      totalSequences: breachResult.totalSequences,
+      lootMultiplier: breachResult.lootMultiplier,
+    });
+
+    if (result.success && result.robbery) {
+      setLastResult(result.robbery);
+      setCanRob(false);
+      // Cooldown: 2 min pour beta
+      const cooldownMs = 2 * 60 * 1000;
+      setCooldownEnds(Date.now() + cooldownMs);
+      loadData();
+    }
+
+    setIsRobbing(null);
+    setBreachTarget(null);
+  };
+
+  // Annuler le mini-jeu
+  const handleBreachCancel = () => {
+    setShowBreach(false);
+    setBreachTarget(null);
+  };
+
+  // Ancien système (fallback) - gardé pour compatibilité
   const handleRob = async (targetId: string) => {
     if (isRobbing) return;
     setIsRobbing(targetId);
@@ -196,10 +259,9 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
     if (result.success && result.robbery) {
       setLastResult(result.robbery);
       setCanRob(false);
-      // Cooldown: 25 min si réussi, 15 min si raté
-      const cooldownMs = result.robbery.success ? 25 * 60 * 1000 : 15 * 60 * 1000;
+      // Cooldown: 2 min pour beta
+      const cooldownMs = 2 * 60 * 1000;
       setCooldownEnds(Date.now() + cooldownMs);
-      // Reload data
       loadData();
     }
 
@@ -274,17 +336,31 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
   };
 
   return (
-    <div className="max-w-[600px] w-full flex flex-col gap-8 animate-fade-in">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b border-[var(--line)] pb-4">
-        <Link
-          href="/dashboard"
-          className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-sm"
-        >
-          &larr; retour
-        </Link>
-        <h1 className="text-[0.85rem] uppercase tracking-widest">braquages</h1>
-      </header>
+    <>
+      {/* Modal Breach Game */}
+      {showBreach && breachTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
+          <BreachGame
+            difficulty={breachDifficulty}
+            targetName={breachTarget.discordUsername}
+            potentialLoot={breachTarget.balance * 0.15} // ~15% estimation
+            onComplete={handleBreachComplete}
+            onCancel={handleBreachCancel}
+          />
+        </div>
+      )}
+
+      <div className="max-w-[600px] w-full flex flex-col gap-8 animate-fade-in">
+        {/* Header */}
+        <header className="flex items-center justify-between border-b border-[var(--line)] pb-4">
+          <Link
+            href="/dashboard"
+            className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-sm"
+          >
+            &larr; retour
+          </Link>
+          <h1 className="text-[0.85rem] uppercase tracking-widest">braquages</h1>
+        </header>
 
       {/* Cooldown Status */}
       {!canRob && cooldownDisplay && (
@@ -361,19 +437,19 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
                   </p>
                 </div>
                 <button
-                  onClick={() => handleRob(target.id)}
-                  disabled={!canRob || isRobbing !== null}
+                  onClick={() => handleStartBreach(target)}
+                  disabled={!canRob || isRobbing !== null || showBreach}
                   className={`
                     px-3 py-1.5 text-[0.75rem] uppercase tracking-wider border
                     ${
-                      canRob && !isRobbing
-                        ? "border-[var(--text-muted)] hover:border-[var(--text)] hover:bg-[rgba(255,255,255,0.05)]"
+                      canRob && !isRobbing && !showBreach
+                        ? "border-green-500/50 text-green-400 hover:border-green-500 hover:bg-green-500/10"
                         : "border-[var(--line)] text-[var(--text-muted)] cursor-not-allowed"
                     }
                     transition-all
                   `}
                 >
-                  {isRobbing === target.id ? "..." : "braquer"}
+                  {isRobbing === target.id ? "..." : "breach"}
                 </button>
               </div>
             ))}
@@ -544,11 +620,13 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
       {/* Info */}
       <div className="text-center p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
         <p className="text-[0.7rem] text-[var(--text-muted)]">
-          40% de chances de base | +10% si la cible est 5x+ plus riche
+          complete le mini-jeu breach pour reussir le braquage
           <br />
-          succes: vole 10-20% | echec: perd 5% de ta balance
+          0 sequence = echec | 1+ sequences = succes
           <br />
-          cooldown: 25min si reussi | 15min si rate
+          plus de sequences = plus de butin (jusqu'a +10%)
+          <br />
+          <span className="text-yellow-400">beta: cooldown 2 min</span>
         </p>
       </div>
 
@@ -789,6 +867,7 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
           </div>
         </section>
       )}
-    </div>
+      </div>
+    </>
   );
 }
