@@ -132,8 +132,8 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
     // Fetch initial
     fetchState();
 
-    // Polling toutes les 500ms
-    pollingRef.current = setInterval(fetchState, 500);
+    // Polling toutes les 1000ms (unifié avec les autres jeux)
+    pollingRef.current = setInterval(fetchState, 1000);
 
     // Visibility API - pause polling when tab hidden
     const handleVisibilityChange = () => {
@@ -151,7 +151,7 @@ export function useCrashGame(userId?: string): UseCrashGameReturn {
         // Tab visible - fetch immediately and restart polling
         fetchState();
         if (!pollingRef.current) {
-          pollingRef.current = setInterval(fetchState, 500);
+          pollingRef.current = setInterval(fetchState, 1000);
         }
       }
     };

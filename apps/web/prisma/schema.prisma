@@ -175,11 +175,11 @@ model DiceGame {
 // GAME ROOMS - Système multijoueur unifié
 // ============================================
 
-// Room de jeu (dés, pfc, etc.)
+// Room de jeu (dés, pfc, click_battle, etc.)
 model GameRoom {
   id           String   @id @default(cuid())
   
-  gameType     String   // "dice", "pfc"
+  gameType     String   // "dice", "pfc", "click_battle"
   amount       Decimal  @db.Decimal(10, 2) // Mise par joueur
   
   minPlayers   Int      @default(2)  // Minimum pour lancer
@@ -190,11 +190,14 @@ model GameRoom {
   hostId       String   // Créateur de la room
   host         User     @relation("RoomHost", fields: [hostId], references: [id], onDelete: Cascade)
   
-  status       String   @default("waiting") // "waiting", "countdown", "playing", "finished"
+  status       String   @default("waiting") // "waiting", "countdown", "playing", "revealing", "finished", "cancelled"
   
   countdownEnd DateTime? // Fin du countdown (15s après minPlayers atteint)
   startedAt    DateTime?
   finishedAt   DateTime?
+  
+  // Pour click_battle
+  duration     Int?     // Durée du click battle en secondes (ex: 10)
   
   createdAt    DateTime @default(now())
   expiresAt    DateTime // Auto-delete si vide après 5min
@@ -223,6 +226,7 @@ model GameRoomPlayer {
   dice1        Int?     // Dé 1
   dice2        Int?     // Dé 2
   choice       String?  // Pour pfc: "pierre", "feuille", "ciseaux"
+  clicks       Int?     // Pour click_battle: nombre de clics
   
   profit       Decimal? @db.Decimal(10, 2) // Gain/perte
   rank         Int?     // Classement final

@@ -1,5 +1,15 @@
 "use server";
 
+/**
+ * @deprecated This file contains the legacy Click Battle 1v1 system.
+ * Use the unified Arena system in game-room.ts for new click battles:
+ * - createClickBattleRoom() - Create a click battle room
+ * - checkClickBattleStart() - Check/start the battle when ready
+ * - submitClickBattleClicks() - Submit click counts
+ * 
+ * This legacy system will be removed once the Arena UI is updated.
+ */
+
 import { prisma, Prisma } from "@antibank/db";
 import { auth } from "@/lib/auth";
 import { addToAntibank } from "@/lib/antibank-corp";

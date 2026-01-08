@@ -108,7 +108,7 @@ export function ClickBattleClient({ userId, userBalance, userName }: ClickBattle
 
   useEffect(() => {
     loadLobbyData();
-    const interval = setInterval(loadLobbyData, 2000);
+    const interval = setInterval(loadLobbyData, 1000);
     return () => clearInterval(interval);
   }, [loadLobbyData]);
 

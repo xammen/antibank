@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { ClickBattleClient } from "./client";
+import { ClickBattleArenaClient } from "./arena-client";
 
 export default async function ClickBattlePage() {
   const session = await auth();
@@ -10,7 +10,7 @@ export default async function ClickBattlePage() {
   }
 
   return (
-    <ClickBattleClient 
+    <ClickBattleArenaClient 
       userId={session.user.id} 
       userBalance={session.user.balance}
       userName={session.user.name || "anon"}

@@ -86,7 +86,7 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
   // Always poll for challenges (even in bot mode, to show notifications)
   useEffect(() => {
     loadPvpData();
-    const interval = setInterval(loadPvpData, 3000);
+    const interval = setInterval(loadPvpData, 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -97,7 +97,7 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
       setHistory(h as HistoryGame[]);
     };
     loadHistory();
-    const interval = setInterval(loadHistory, 5000);
+    const interval = setInterval(loadHistory, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -131,7 +131,7 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
       }
     };
 
-    const interval = setInterval(checkResults, 2000);
+    const interval = setInterval(checkResults, 1000);
     return () => clearInterval(interval);
   }, [challenges.waitingResult, challenges.sent, seenResultIds, refreshBalance]);
 
@@ -287,7 +287,7 @@ function PFCGameInner({ userBalance, userName }: PFCGameClientProps) {
       }
     };
     
-    const interval = setInterval(checkRematch, 1500);
+    const interval = setInterval(checkRematch, 1000);
     return () => clearInterval(interval);
   }, [pvpResult?.gameId, rematchStatus?.myVote]);
 

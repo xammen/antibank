@@ -321,6 +321,70 @@ export function toPublicRoom(room: any): PvPRoom {
 }
 
 // ============================================
+// CLICK BATTLE SPECIFIQUE
+// ============================================
+
+export const CLICK_BATTLE_CONFIG = {
+  DEFAULT_DURATION: 10,
+  MIN_DURATION: 5,
+  MAX_DURATION: 30,
+  MAX_CLICKS_PER_SECOND: 20, // Anti-cheat
+  READY_COUNTDOWN_SECONDS: 3,
+};
+
+/**
+ * Valide une durée de click battle
+ */
+export function validateClickBattleDuration(duration: number): { valid: boolean; error?: string } {
+  if (duration < CLICK_BATTLE_CONFIG.MIN_DURATION) {
+    return { valid: false, error: `durée minimum: ${CLICK_BATTLE_CONFIG.MIN_DURATION}s` };
+  }
+  if (duration > CLICK_BATTLE_CONFIG.MAX_DURATION) {
+    return { valid: false, error: `durée maximum: ${CLICK_BATTLE_CONFIG.MAX_DURATION}s` };
+  }
+  return { valid: true };
+}
+
+/**
+ * Valide un score de clics (anti-cheat)
+ */
+export function validateClicks(clicks: number, duration: number): number {
+  const maxPossible = duration * CLICK_BATTLE_CONFIG.MAX_CLICKS_PER_SECOND;
+  return Math.min(Math.max(0, Math.floor(clicks)), maxPossible);
+}
+
+/**
+ * Détermine les gagnants d'un click battle
+ * Retourne les joueurs triés par nombre de clics décroissant
+ */
+export function resolveClickBattleWinners(
+  players: { odrzerId: string; clicks: number }[]
+): { 
+  sorted: { odrzerId: string; clicks: number; rank: number; isWinner: boolean }[];
+  maxClicks: number;
+  isTie: boolean;
+} {
+  const sorted = [...players]
+    .sort((a, b) => b.clicks - a.clicks)
+    .map((p, i) => ({
+      ...p,
+      rank: i + 1,
+      isWinner: false,
+    }));
+  
+  const maxClicks = sorted[0]?.clicks || 0;
+  const winners = sorted.filter(p => p.clicks === maxClicks);
+  const isTie = winners.length === sorted.length;
+  
+  // Marquer les gagnants
+  for (const winner of winners) {
+    winner.isWinner = true;
+  }
+  
+  return { sorted, maxClicks, isTie };
+}
+
+// ============================================
 // NETTOYAGE
 // ============================================
 

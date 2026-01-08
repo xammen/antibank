@@ -98,8 +98,8 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
       }
     };
 
-    // Poll plus rapidement (500ms) pour ne pas rater la fin du countdown
-    const interval = setInterval(poll, 500);
+    // Poll toutes les 1000ms (unifié)
+    const interval = setInterval(poll, 1000);
     return () => clearInterval(interval);
   }, [view, currentRoom, loadRooms]);
 
@@ -130,11 +130,11 @@ export function ArenaClient({ userId, userBalance: userBalanceStr, userName }: A
     loadRooms();
   }, [loadRooms]);
 
-  // Poll lobby rooms
+  // Poll lobby rooms (moins fréquent car moins critique)
   useEffect(() => {
     if (view !== "lobby") return;
     
-    const interval = setInterval(loadRooms, 3000);
+    const interval = setInterval(loadRooms, 2000);
     return () => clearInterval(interval);
   }, [view, loadRooms]);
 

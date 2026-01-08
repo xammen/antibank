@@ -113,7 +113,7 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
   // Always poll for challenges (even in bot mode, to show notifications)
   useEffect(() => {
     loadPvpData();
-    const interval = setInterval(loadPvpData, 3000);
+    const interval = setInterval(loadPvpData, 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -124,7 +124,7 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
       setHistory(h as HistoryGame[]);
     };
     loadHistory();
-    const interval = setInterval(loadHistory, 5000);
+    const interval = setInterval(loadHistory, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -166,7 +166,7 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
       }
     };
 
-    const interval = setInterval(checkResults, 2000);
+    const interval = setInterval(checkResults, 1000);
     return () => clearInterval(interval);
   }, [mode, challenges.sent, seenResultIds, refreshBalance]);
 
@@ -260,7 +260,7 @@ function DiceGameInner({ userBalance, userName }: DiceGameClientProps) {
       }
     };
     
-    const interval = setInterval(checkRematch, 1500);
+    const interval = setInterval(checkRematch, 1000);
     return () => clearInterval(interval);
   }, [pvpResult?.gameId, rematchStatus?.myVote]);
 

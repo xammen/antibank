@@ -6,8 +6,8 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { addToAntibank } from "@/lib/antibank-corp";
 
 // Types
-export type GameType = "dice" | "pfc";
-export type RoomStatus = "waiting" | "countdown" | "playing" | "finished";
+export type GameType = "dice" | "pfc" | "click_battle";
+export type RoomStatus = "waiting" | "countdown" | "playing" | "revealing" | "finished" | "cancelled";
 
 export interface RoomPlayer {
   id: string;
@@ -18,6 +18,7 @@ export interface RoomPlayer {
   dice1?: number | null;
   dice2?: number | null;
   choice?: string | null;
+  clicks?: number | null;
   profit?: number | null;
   rank?: number | null;
 }
@@ -33,6 +34,8 @@ export interface GameRoomPublic {
   hostId: string;
   status: RoomStatus;
   countdownEnd?: Date | null;
+  startedAt?: Date | null;
+  duration?: number | null; // Pour click_battle: durée en secondes
   players: RoomPlayer[];
   createdAt: Date;
 }
@@ -65,6 +68,8 @@ function toPublicRoom(room: any): GameRoomPublic {
     hostId: room.hostId,
     status: room.status as RoomStatus,
     countdownEnd: room.countdownEnd,
+    startedAt: room.startedAt,
+    duration: room.duration,
     players: room.players.map((p: any) => ({
       id: p.id,
       odrzerId: p.userId,
@@ -74,6 +79,7 @@ function toPublicRoom(room: any): GameRoomPublic {
       dice1: p.dice1,
       dice2: p.dice2,
       choice: p.choice,
+      clicks: p.clicks,
       profit: p.profit ? Number(p.profit) : null,
       rank: p.rank,
     })),
@@ -1073,4 +1079,467 @@ export async function getRematchInfo(roomId: string): Promise<{
     gameType: room.gameType as GameType,
     amount: Number(room.amount),
   };
+}
+
+// ============================================
+// CLICK BATTLE - Create Room
+// ============================================
+const CLICK_BATTLE_CONFIG = {
+  DEFAULT_DURATION: 10, // 10 secondes par défaut
+  MIN_DURATION: 5,
+  MAX_DURATION: 30,
+  MAX_CLICKS_PER_SECOND: 20, // Anti-cheat: max 20 CPS
+  READY_COUNTDOWN_SECONDS: 3, // 3s countdown après que tous soient prêts
+};
+
+export async function createClickBattleRoom(
+  amount: number,
+  duration: number = CLICK_BATTLE_CONFIG.DEFAULT_DURATION,
+  isPrivate: boolean = false,
+  maxPlayers: number = 2
+): Promise<{ success: boolean; room?: GameRoomPublic; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "non connecté" };
+  }
+
+  const userId = session.user.id;
+
+  // Validation
+  if (amount < 0.5 || amount > 1000) {
+    return { success: false, error: "mise entre 0.5€ et 1000€" };
+  }
+
+  if (duration < CLICK_BATTLE_CONFIG.MIN_DURATION || duration > CLICK_BATTLE_CONFIG.MAX_DURATION) {
+    return { success: false, error: `durée entre ${CLICK_BATTLE_CONFIG.MIN_DURATION}s et ${CLICK_BATTLE_CONFIG.MAX_DURATION}s` };
+  }
+
+  if (maxPlayers < 2 || maxPlayers > 8) {
+    return { success: false, error: "2 à 8 joueurs max" };
+  }
+
+  // Vérifier que le user n'est pas déjà dans une room active
+  const existingPlayer = await prisma.gameRoomPlayer.findFirst({
+    where: {
+      userId,
+      room: {
+        status: { in: ["waiting", "countdown", "playing", "revealing"] },
+      },
+    },
+  });
+
+  if (existingPlayer) {
+    return { success: false, error: "déjà dans une room" };
+  }
+
+  // Vérifier le solde
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { balance: true, discordUsername: true },
+  });
+
+  if (!user || Number(user.balance) < amount) {
+    return { success: false, error: "pas assez de thunes" };
+  }
+
+  // Générer code si privée
+  let code: string | null = null;
+  if (isPrivate) {
+    for (let i = 0; i < 10; i++) {
+      const tryCode = generateRoomCode();
+      const existing = await prisma.gameRoom.findUnique({ where: { code: tryCode } });
+      if (!existing) {
+        code = tryCode;
+        break;
+      }
+    }
+    if (!code) {
+      return { success: false, error: "erreur génération code" };
+    }
+  }
+
+  // Créer la room
+  const room = await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: userId },
+      data: { balance: { decrement: amount } },
+    });
+
+    const newRoom = await tx.gameRoom.create({
+      data: {
+        gameType: "click_battle",
+        amount: new Decimal(amount),
+        minPlayers: 2,
+        maxPlayers,
+        code,
+        hostId: userId,
+        status: "waiting",
+        duration, // Durée du click battle
+        expiresAt: new Date(Date.now() + ROOM_EXPIRE_MINUTES * 60 * 1000),
+        players: {
+          create: {
+            userId,
+            username: user.discordUsername,
+            isReady: false, // Pas auto-ready pour click battle
+          },
+        },
+      },
+      include: { players: true },
+    });
+
+    await tx.transaction.create({
+      data: {
+        userId,
+        type: "game_room_join",
+        amount: new Decimal(-amount),
+        description: `Mise click battle #${newRoom.id.slice(-6)}`,
+      },
+    });
+
+    return newRoom;
+  });
+
+  return { success: true, room: toPublicRoom(room) };
+}
+
+// ============================================
+// CLICK BATTLE - Start when all ready
+// ============================================
+export async function checkClickBattleStart(
+  roomId: string
+): Promise<{ success: boolean; room?: GameRoomPublic; error?: string; startTime?: number }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "non connecté" };
+  }
+
+  const room = await prisma.gameRoom.findUnique({
+    where: { id: roomId },
+    include: { players: true },
+  });
+
+  if (!room) {
+    return { success: false, error: "room introuvable" };
+  }
+
+  if (room.gameType !== "click_battle") {
+    return { success: false, error: "pas un click battle" };
+  }
+
+  // Si déjà en cours, retourner le startTime
+  if (room.status === "playing" && room.startedAt) {
+    return { 
+      success: true, 
+      room: toPublicRoom(room),
+      startTime: room.startedAt.getTime(),
+    };
+  }
+
+  // Vérifier si on est en countdown et que c'est l'heure
+  if (room.status === "countdown" && room.countdownEnd) {
+    const now = new Date();
+    if (now >= room.countdownEnd) {
+      // Démarrer le click battle
+      const updatedRoom = await prisma.gameRoom.update({
+        where: { id: roomId },
+        data: {
+          status: "playing",
+          startedAt: new Date(),
+        },
+        include: { players: true },
+      });
+      
+      return { 
+        success: true, 
+        room: toPublicRoom(updatedRoom),
+        startTime: updatedRoom.startedAt?.getTime(),
+      };
+    }
+  }
+
+  // Vérifier si tous les joueurs sont prêts pour lancer le countdown
+  if (room.status === "waiting" || room.status === "countdown") {
+    const readyPlayers = room.players.filter(p => p.isReady);
+    const allReady = room.players.length >= room.minPlayers && 
+                     readyPlayers.length === room.players.length;
+    
+    if (allReady && room.status === "waiting") {
+      // Lancer le countdown de 3 secondes
+      const countdownEnd = new Date(Date.now() + CLICK_BATTLE_CONFIG.READY_COUNTDOWN_SECONDS * 1000);
+      
+      const updatedRoom = await prisma.gameRoom.update({
+        where: { id: roomId },
+        data: {
+          status: "countdown",
+          countdownEnd,
+        },
+        include: { players: true },
+      });
+      
+      return { success: true, room: toPublicRoom(updatedRoom) };
+    }
+  }
+
+  return { success: true, room: toPublicRoom(room) };
+}
+
+// ============================================
+// CLICK BATTLE - Submit clicks
+// ============================================
+export async function submitClickBattleClicks(
+  roomId: string,
+  clicks: number
+): Promise<{ 
+  success: boolean; 
+  room?: GameRoomPublic; 
+  error?: string;
+  waiting?: boolean;
+  result?: {
+    myClicks: number;
+    opponentClicks: { odrzerId: string; username: string; clicks: number }[];
+    won: boolean | null;
+    profit: number;
+    rank: number;
+  };
+}> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "non connecté" };
+  }
+
+  const userId = session.user.id;
+
+  // Sanitize clicks (anti-cheat)
+  clicks = Math.max(0, Math.floor(clicks));
+  
+  const room = await prisma.gameRoom.findUnique({
+    where: { id: roomId },
+    include: { players: true },
+  });
+
+  if (!room) {
+    return { success: false, error: "room introuvable" };
+  }
+
+  if (room.gameType !== "click_battle") {
+    return { success: false, error: "pas un click battle" };
+  }
+
+  const player = room.players.find(p => p.userId === userId);
+  if (!player) {
+    return { success: false, error: "pas dans cette room" };
+  }
+
+  if (room.status !== "playing" && room.status !== "revealing") {
+    return { success: false, error: "partie pas en cours" };
+  }
+
+  // Vérifier que le temps est écoulé (avec 1s de grâce)
+  if (room.startedAt && room.duration) {
+    const elapsed = Date.now() - room.startedAt.getTime();
+    const minTimeRequired = (room.duration - 1) * 1000;
+    if (elapsed < minTimeRequired) {
+      return { success: false, error: "le duel n'est pas terminé" };
+    }
+  }
+
+  // Anti-cheat: limiter les clics possibles
+  const maxPossibleClicks = (room.duration || CLICK_BATTLE_CONFIG.DEFAULT_DURATION) * CLICK_BATTLE_CONFIG.MAX_CLICKS_PER_SECOND;
+  clicks = Math.min(clicks, maxPossibleClicks);
+
+  if (player.clicks !== null) {
+    return { success: false, error: "déjà soumis" };
+  }
+
+  // Enregistrer les clics et passer en revealing
+  await prisma.gameRoomPlayer.update({
+    where: { id: player.id },
+    data: { clicks },
+  });
+
+  // Mettre à jour le statut en revealing
+  await prisma.gameRoom.update({
+    where: { id: roomId },
+    data: { status: "revealing" },
+  });
+
+  // Recharger pour voir si tous ont soumis
+  const updatedRoom = await prisma.gameRoom.findUnique({
+    where: { id: roomId },
+    include: { players: true },
+  });
+
+  if (!updatedRoom) {
+    return { success: false, error: "erreur" };
+  }
+
+  const readyPlayers = updatedRoom.players.filter(p => p.isReady);
+  const allSubmitted = readyPlayers.every(p => p.clicks !== null);
+
+  if (!allSubmitted) {
+    return { success: true, room: toPublicRoom(updatedRoom), waiting: true };
+  }
+
+  // Tous ont soumis - résoudre le click battle
+  return resolveClickBattle(updatedRoom, userId);
+}
+
+// ============================================
+// CLICK BATTLE - Resolve game
+// ============================================
+async function resolveClickBattle(
+  room: any,
+  currentUserId: string
+): Promise<{ 
+  success: boolean; 
+  room?: GameRoomPublic; 
+  error?: string;
+  result?: {
+    myClicks: number;
+    opponentClicks: { odrzerId: string; username: string; clicks: number }[];
+    won: boolean | null;
+    profit: number;
+    rank: number;
+  };
+}> {
+  const readyPlayers = room.players.filter((p: any) => p.isReady && p.clicks !== null);
+
+  if (readyPlayers.length < 2) {
+    return { success: false, error: "pas assez de joueurs" };
+  }
+
+  // Trier par clics décroissants
+  const sorted = [...readyPlayers].sort((a: any, b: any) => (b.clicks || 0) - (a.clicks || 0));
+
+  const pot = Number(room.amount) * readyPlayers.length;
+  const houseFee = Math.floor(pot * HOUSE_FEE * 100) / 100;
+  const prizePool = pot - houseFee;
+
+  // Envoyer les frais à ANTIBANK CORP
+  if (houseFee > 0) {
+    addToAntibank(houseFee, "taxe click battle").catch(() => {});
+  }
+
+  // Trouver les gagnants (égalité possible)
+  const maxClicks = sorted[0].clicks;
+  const winners = sorted.filter((p: any) => p.clicks === maxClicks);
+  const prizePerWinner = prizePool / winners.length;
+
+  // Mettre à jour les résultats
+  const updatedRoom = await prisma.$transaction(async (tx) => {
+    for (let i = 0; i < sorted.length; i++) {
+      const p = sorted[i];
+      const isWinner = p.clicks === maxClicks;
+      const profit = isWinner ? prizePerWinner - Number(room.amount) : -Number(room.amount);
+
+      await tx.gameRoomPlayer.update({
+        where: { id: p.id },
+        data: {
+          profit: new Decimal(profit),
+          rank: i + 1,
+        },
+      });
+
+      // Donner les gains aux gagnants
+      if (isWinner) {
+        await tx.user.update({
+          where: { id: p.userId },
+          data: { balance: { increment: prizePerWinner } },
+        });
+        await tx.transaction.create({
+          data: {
+            userId: p.userId,
+            type: "game_room_win",
+            amount: new Decimal(prizePerWinner),
+            description: `Victoire click battle (${p.clicks} clics) - Room #${room.id.slice(-6)}`,
+          },
+        });
+      }
+    }
+
+    // Joueurs non-ready perdent leur mise
+    const notReadyPlayers = room.players.filter((p: any) => !p.isReady || p.clicks === null);
+    for (const p of notReadyPlayers) {
+      if (!readyPlayers.find((rp: any) => rp.id === p.id)) {
+        await tx.gameRoomPlayer.update({
+          where: { id: p.id },
+          data: {
+            profit: new Decimal(-Number(room.amount)),
+            rank: sorted.length + 1,
+          },
+        });
+      }
+    }
+
+    return tx.gameRoom.update({
+      where: { id: room.id },
+      data: {
+        status: "finished",
+        finishedAt: new Date(),
+      },
+      include: { players: true },
+    });
+  });
+
+  // Construire le résultat pour le joueur actuel
+  const myPlayer = updatedRoom.players.find(p => p.userId === currentUserId);
+  const opponents = updatedRoom.players
+    .filter(p => p.userId !== currentUserId)
+    .map(p => ({
+      odrzerId: p.userId,
+      username: p.username,
+      clicks: p.clicks || 0,
+    }));
+
+  const myClicks = myPlayer?.clicks || 0;
+  const isWinner = myClicks === maxClicks;
+  const isTie = winners.length === readyPlayers.length;
+
+  return {
+    success: true,
+    room: toPublicRoom(updatedRoom),
+    result: {
+      myClicks,
+      opponentClicks: opponents,
+      won: isTie ? null : isWinner,
+      profit: Number(myPlayer?.profit || 0),
+      rank: myPlayer?.rank || 99,
+    },
+  };
+}
+
+// ============================================
+// CLICK BATTLE - Quick match
+// ============================================
+export async function quickClickBattleMatch(
+  amount: number,
+  duration: number = CLICK_BATTLE_CONFIG.DEFAULT_DURATION
+): Promise<{ success: boolean; room?: GameRoomPublic; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "non connecté" };
+  }
+
+  // Chercher une room publique avec les mêmes paramètres
+  const existingRoom = await prisma.gameRoom.findFirst({
+    where: {
+      gameType: "click_battle",
+      amount: new Decimal(amount),
+      duration,
+      status: { in: ["waiting", "countdown"] },
+      code: null,
+    },
+    include: { players: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (existingRoom && existingRoom.players.length < existingRoom.maxPlayers) {
+    const alreadyIn = existingRoom.players.some((p) => p.userId === session.user!.id);
+    if (!alreadyIn) {
+      return joinRoom(existingRoom.id);
+    }
+  }
+
+  // Pas de room dispo, en créer une nouvelle
+  return createClickBattleRoom(amount, duration, false, 2);
 }
