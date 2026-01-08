@@ -17,6 +17,7 @@ export interface CreatePFCResult {
   success: boolean;
   error?: string;
   gameId?: string;
+  serverTime?: number;
 }
 
 export interface MakeChoiceResult {
@@ -27,6 +28,24 @@ export interface MakeChoiceResult {
   winnerId?: string | null;
   profit?: number;
   waiting?: boolean;
+  serverTime?: number;
+}
+
+export interface PFCGameState {
+  success: boolean;
+  error?: string;
+  game?: {
+    id: string;
+    status: string;
+    player1Choice?: string | null;
+    player2Choice?: string | null;
+    winnerId?: string | null;
+    amount: number;
+    player1Name: string;
+    player2Name: string;
+    completedAt?: Date | null;
+  };
+  serverTime: number;
 }
 
 /**
@@ -74,28 +93,28 @@ export async function createPFCChallenge(
     });
 
     
-    return { success: true, gameId: game.id };
+    return { success: true, gameId: game.id, serverTime: Date.now() };
   } catch (error) {
     console.error("Create PFC challenge error:", error);
-    return { success: false, error: "erreur serveur" };
+    return { success: false, error: "erreur serveur", serverTime: Date.now() };
   }
 }
 
 /**
- * Accepte un défi PFC
+ * Accepte un défi PFC - ATOMIC with updateMany to prevent race conditions
  */
-export async function acceptPFCChallenge(gameId: string): Promise<{ success: boolean; error?: string }> {
+export async function acceptPFCChallenge(gameId: string): Promise<{ success: boolean; error?: string; serverTime?: number }> {
   const session = await auth();
   if (!session?.user?.id) {
-    return { success: false, error: "non connecté" };
+    return { success: false, error: "non connecté", serverTime: Date.now() };
   }
 
   const game = await prisma.pFCGame.findUnique({
     where: { id: gameId },
   });
 
-  if (!game || game.status !== "pending" || game.player2Id !== session.user.id) {
-    return { success: false, error: "défi invalide" };
+  if (!game || game.player2Id !== session.user.id) {
+    return { success: false, error: "défi invalide", serverTime: Date.now() };
   }
 
   if (new Date() > game.expiresAt) {
@@ -103,7 +122,21 @@ export async function acceptPFCChallenge(gameId: string): Promise<{ success: boo
       where: { id: gameId },
       data: { status: "expired" },
     });
-    return { success: false, error: "défi expiré" };
+    return { success: false, error: "défi expiré", serverTime: Date.now() };
+  }
+
+  // ATOMIC: Use updateMany to prevent race conditions
+  const updateResult = await prisma.pFCGame.updateMany({
+    where: { 
+      id: gameId, 
+      status: "pending" // Only update if still pending
+    },
+    data: { status: "accepting" } // Temporary lock status
+  });
+
+  // If count === 0, another process already accepted
+  if (updateResult.count === 0) {
+    return { success: false, error: "défi déjà accepté", serverTime: Date.now() };
   }
 
   // Déduire les mises
@@ -128,11 +161,11 @@ export async function acceptPFCChallenge(gameId: string): Promise<{ success: boo
   ]);
 
   
-  return { success: true };
+  return { success: true, serverTime: Date.now() };
 }
 
 /**
- * Fait un choix dans un jeu PFC
+ * Fait un choix dans un jeu PFC - ATOMIC to prevent double-choice race conditions
  */
 export async function makePFCChoice(
   gameId: string,
@@ -140,7 +173,7 @@ export async function makePFCChoice(
 ): Promise<MakeChoiceResult> {
   const session = await auth();
   if (!session?.user?.id) {
-    return { success: false, error: "non connecté" };
+    return { success: false, error: "non connecté", serverTime: Date.now() };
   }
 
   const game = await prisma.pFCGame.findUnique({
@@ -148,40 +181,50 @@ export async function makePFCChoice(
   });
 
   if (!game || game.status !== "playing") {
-    return { success: false, error: "jeu invalide" };
+    return { success: false, error: "jeu invalide", serverTime: Date.now() };
   }
 
   const isPlayer1 = game.player1Id === session.user.id;
   const isPlayer2 = game.player2Id === session.user.id;
 
   if (!isPlayer1 && !isPlayer2) {
-    return { success: false, error: "tu n'es pas dans ce jeu" };
+    return { success: false, error: "tu n'es pas dans ce jeu", serverTime: Date.now() };
   }
 
-  // Vérifier si le joueur a déjà choisi
-  if (isPlayer1 && game.player1Choice) {
-    return { success: false, error: "tu as déjà choisi" };
-  }
-  if (isPlayer2 && game.player2Choice) {
-    return { success: false, error: "tu as déjà choisi" };
-  }
-
-  // Enregistrer le choix
+  // ATOMIC: Use updateMany to prevent double-choice
   const updateData = isPlayer1
     ? { player1Choice: choice }
     : { player2Choice: choice };
+  
+  const whereClause = isPlayer1
+    ? { id: gameId, player1Choice: null } // Only update if player1 hasn't chosen
+    : { id: gameId, player2Choice: null }; // Only update if player2 hasn't chosen
 
-  const updatedGame = await prisma.pFCGame.update({
-    where: { id: gameId },
+  const updateResult = await prisma.pFCGame.updateMany({
+    where: whereClause,
     data: updateData,
   });
 
+  // If count === 0, player already chose
+  if (updateResult.count === 0) {
+    return { success: false, error: "tu as déjà choisi", serverTime: Date.now() };
+  }
+
+  // Fetch updated game
+  const updatedGame = await prisma.pFCGame.findUnique({
+    where: { id: gameId },
+  });
+
+  if (!updatedGame) {
+    return { success: false, error: "erreur serveur", serverTime: Date.now() };
+  }
+
   // Vérifier si les deux ont choisi
-  const player1Choice = isPlayer1 ? choice : updatedGame.player1Choice;
-  const player2Choice = isPlayer2 ? choice : updatedGame.player2Choice;
+  const player1Choice = updatedGame.player1Choice;
+  const player2Choice = updatedGame.player2Choice;
 
   if (!player1Choice || !player2Choice) {
-    return { success: true, waiting: true };
+    return { success: true, waiting: true, serverTime: Date.now() };
   }
 
   // Les deux ont choisi - résoudre le jeu
@@ -267,6 +310,7 @@ export async function makePFCChoice(
     player2Choice: player2Choice as PFCChoice,
     winnerId,
     profit: myProfit,
+    serverTime: Date.now(),
   };
 }
 
@@ -445,7 +489,51 @@ export async function getPendingPFCChallenges() {
 }
 
 /**
+ * Récupère l'état d'une partie PFC (pour polling)
+ */
+export async function getPFCGameState(gameId: string): Promise<PFCGameState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "non connecté", serverTime: Date.now() };
+  }
+
+  const game = await prisma.pFCGame.findUnique({
+    where: { id: gameId },
+    include: {
+      player1: { select: { id: true, discordUsername: true } },
+      player2: { select: { id: true, discordUsername: true } },
+    },
+  });
+
+  if (!game) {
+    return { success: false, error: "partie introuvable", serverTime: Date.now() };
+  }
+
+  // Vérifier que l'utilisateur est dans la partie
+  if (game.player1Id !== session.user.id && game.player2Id !== session.user.id) {
+    return { success: false, error: "pas dans cette partie", serverTime: Date.now() };
+  }
+
+  return {
+    success: true,
+    game: {
+      id: game.id,
+      status: game.status,
+      player1Choice: game.player1Choice,
+      player2Choice: game.player2Choice,
+      winnerId: game.winnerId,
+      amount: Number(game.amount),
+      player1Name: game.player1?.discordUsername || "?",
+      player2Name: game.player2?.discordUsername || "?",
+      completedAt: game.completedAt,
+    },
+    serverTime: Date.now(),
+  };
+}
+
+/**
  * Récupère les parties PFC récemment terminées (pour notification)
+ * DEPRECATED: Use getPFCGameState instead for reliable polling
  */
 export async function getRecentPFCResults() {
   const session = await auth();
@@ -546,127 +634,126 @@ export async function getPFCHistory(limit = 20) {
 }
 
 /**
- * Demande un rematch pour une partie PFC terminée
+ * Demande un rematch pour une partie PFC terminée - DETERMINISTIC code system (no voting race conditions)
+ * Uses code format: RP{last5chars} - same code for both players
  */
 export async function requestPFCRematch(
   gameId: string
-): Promise<{ success: boolean; error?: string; rematchStarted?: boolean; newGameId?: string }> {
+): Promise<{ success: boolean; error?: string; code?: string; newGameId?: string; serverTime?: number }> {
   const session = await auth();
   if (!session?.user?.id) {
-    return { success: false, error: "non connecté" };
+    return { success: false, error: "non connecté", serverTime: Date.now() };
   }
 
   const game = await prisma.pFCGame.findUnique({
     where: { id: gameId },
     include: {
-      player1: { select: { id: true, balance: true } },
-      player2: { select: { id: true, balance: true } },
+      player1: { select: { id: true, balance: true, discordUsername: true } },
+      player2: { select: { id: true, balance: true, discordUsername: true } },
     },
   });
 
   if (!game) {
-    return { success: false, error: "partie introuvable" };
+    return { success: false, error: "partie introuvable", serverTime: Date.now() };
   }
 
   if (game.status !== "completed") {
-    return { success: false, error: "partie pas terminée" };
+    return { success: false, error: "partie pas terminée", serverTime: Date.now() };
   }
 
   const isPlayer1 = game.player1Id === session.user.id;
   const isPlayer2 = game.player2Id === session.user.id;
   if (!isPlayer1 && !isPlayer2) {
-    return { success: false, error: "tu n'étais pas dans cette partie" };
+    return { success: false, error: "tu n'étais pas dans cette partie", serverTime: Date.now() };
   }
 
   // Vérifier que la partie n'est pas trop vieille (max 5 min)
   if (game.completedAt && Date.now() - game.completedAt.getTime() > 5 * 60 * 1000) {
-    return { success: false, error: "rematch expiré" };
+    return { success: false, error: "rematch expiré", serverTime: Date.now() };
   }
 
   const amount = Number(game.amount);
 
-  // Vérifier les soldes
-  if (Number(game.player1?.balance) < amount) {
-    return { success: false, error: "solde insuffisant (joueur 1)" };
-  }
-  if (Number(game.player2?.balance) < amount) {
-    return { success: false, error: "solde insuffisant (joueur 2)" };
-  }
-
-  // Mettre à jour le vote rematch
-  const updatedGame = await prisma.pFCGame.update({
-    where: { id: gameId },
-    data: isPlayer1 
-      ? { player1WantsRematch: true }
-      : { player2WantsRematch: true },
+  // Vérifier le solde de l'utilisateur actuel
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { balance: true, discordUsername: true },
   });
 
-  // Vérifier si les deux joueurs veulent un rematch
-  const bothWantRematch = isPlayer1 
-    ? (true && updatedGame.player2WantsRematch)
-    : (updatedGame.player1WantsRematch && true);
-
-  if (bothWantRematch) {
-    // Les deux veulent rejouer - créer directement une partie en "playing"
-    // et déduire les mises immédiatement
-    const newGame = await prisma.$transaction(async (tx) => {
-      // Déduire les mises des deux joueurs
-      await tx.user.update({
-        where: { id: game.player1Id },
-        data: { balance: { decrement: amount } },
-      });
-      await tx.user.update({
-        where: { id: game.player2Id! },
-        data: { balance: { decrement: amount } },
-      });
-
-      // Créer la partie directement en "playing"
-      const created = await tx.pFCGame.create({
-        data: {
-          player1Id: game.player1Id,
-          player2Id: game.player2Id!,
-          amount: game.amount,
-          status: "playing",
-          expiresAt: new Date(Date.now() + 30000), // 30s pour jouer
-        },
-      });
-
-      // Lier l'ancienne partie à la nouvelle (pour que le polling trouve le rematch)
-      await tx.pFCGame.update({
-        where: { id: gameId },
-        data: { 
-          player1WantsRematch: false, 
-          player2WantsRematch: false,
-          rematchGameId: created.id,
-        },
-      });
-
-      return created;
-    });
-
-    return { success: true, rematchStarted: true, newGameId: newGame.id };
+  if (!user || Number(user.balance) < amount) {
+    return { success: false, error: "solde insuffisant", serverTime: Date.now() };
   }
 
-  return { success: true, rematchStarted: false };
+  // DETERMINISTIC REMATCH CODE - both players get the same code
+  const rematchCode = `RP${gameId.slice(-5)}`;
+
+  // Get opponent ID safely
+  const opponentId = isPlayer1 ? game.player2Id : game.player1Id;
+  
+  if (!opponentId || !game.player2Id) {
+    return { success: false, error: "partie 1v1 uniquement", serverTime: Date.now() };
+  }
+
+  // Check if rematch challenge already exists
+  const existingRematch = await prisma.pFCGame.findFirst({
+    where: {
+      OR: [
+        { player1Id: game.player1Id, player2Id: game.player2Id },
+        { player1Id: game.player2Id, player2Id: game.player1Id },
+      ],
+      status: "pending",
+      createdAt: { gte: game.completedAt! }, // After the original game
+    },
+  });
+
+  if (existingRematch) {
+    // Check if it's ours
+    if (existingRematch.player1Id === session.user.id || existingRematch.player2Id === session.user.id) {
+      return { 
+        success: true, 
+        code: rematchCode, 
+        newGameId: existingRematch.id,
+        serverTime: Date.now()
+      };
+    }
+  }
+
+  // Create new rematch challenge with deterministic pattern
+  // Player who clicks first becomes player1, other becomes player2
+  const newGame = await prisma.pFCGame.create({
+    data: {
+      player1Id: session.user.id,
+      player2Id: opponentId,
+      amount: game.amount,
+      status: "pending",
+      expiresAt: new Date(Date.now() + PFC_CONFIG.CHALLENGE_EXPIRY_MS),
+    },
+  });
+
+  return { 
+    success: true, 
+    code: rematchCode, 
+    newGameId: newGame.id,
+    serverTime: Date.now()
+  };
 }
 
 /**
- * Vérifie l'état du rematch pour une partie PFC
+ * Vérifie l'état du rematch pour une partie PFC - DEPRECATED, use getPFCGameState or pending challenges instead
  */
 export async function checkPFCRematchStatus(
   gameId: string
 ): Promise<{ 
   canRematch: boolean; 
-  myVote: boolean; 
-  theirVote: boolean;
   opponentId?: string;
   opponentName?: string;
   amount?: number;
   rematchGameId?: string;
+  serverTime: number;
 }> {
   const session = await auth();
   if (!session?.user?.id) {
-    return { canRematch: false, myVote: false, theirVote: false };
+    return { canRematch: false, serverTime: Date.now() };
   }
 
   const game = await prisma.pFCGame.findUnique({
@@ -678,41 +765,46 @@ export async function checkPFCRematchStatus(
   });
 
   if (!game || game.status !== "completed") {
-    return { canRematch: false, myVote: false, theirVote: false };
-  }
-
-  // Si un rematch a déjà été créé, retourner l'ID directement
-  if (game.rematchGameId) {
-    return { 
-      canRematch: false, 
-      myVote: true, 
-      theirVote: true,
-      rematchGameId: game.rematchGameId,
-    };
+    return { canRematch: false, serverTime: Date.now() };
   }
 
   // Vérifier que la partie n'est pas trop vieille
   if (game.completedAt && Date.now() - game.completedAt.getTime() > 5 * 60 * 1000) {
-    return { canRematch: false, myVote: false, theirVote: false };
+    return { canRematch: false, serverTime: Date.now() };
   }
 
   const isPlayer1 = game.player1Id === session.user.id;
   const isPlayer2 = game.player2Id === session.user.id;
 
   if (!isPlayer1 && !isPlayer2) {
-    return { canRematch: false, myVote: false, theirVote: false };
+    return { canRematch: false, serverTime: Date.now() };
   }
 
-  const myVote = isPlayer1 ? game.player1WantsRematch : game.player2WantsRematch;
-  const theirVote = isPlayer1 ? game.player2WantsRematch : game.player1WantsRematch;
   const opponent = isPlayer1 ? game.player2 : game.player1;
 
+  // Check if a rematch challenge exists
+  const opponentId = isPlayer1 ? game.player2Id : game.player1Id;
+  if (!opponentId || !game.completedAt) {
+    return { canRematch: false, serverTime: Date.now() };
+  }
+
+  const existingRematch = await prisma.pFCGame.findFirst({
+    where: {
+      OR: [
+        { player1Id: game.player1Id, player2Id: opponentId },
+        { player1Id: opponentId, player2Id: game.player1Id },
+      ],
+      status: "pending",
+      createdAt: { gte: game.completedAt },
+    },
+  });
+
   return { 
-    canRematch: true, 
-    myVote, 
-    theirVote,
+    canRematch: true,
     opponentId: opponent?.id,
     opponentName: opponent?.discordUsername,
     amount: Number(game.amount),
+    rematchGameId: existingRematch?.id,
+    serverTime: Date.now(),
   };
 }

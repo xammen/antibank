@@ -38,6 +38,7 @@ export interface GameRoomPublic {
   duration?: number | null; // Pour click_battle: durée en secondes
   players: RoomPlayer[];
   createdAt: Date;
+  serverTime: number; // Server timestamp for client sync
 }
 
 // Constantes
@@ -55,7 +56,7 @@ function generateRoomCode(): string {
   return code;
 }
 
-// Convertit un room DB en room publique
+// Convertit un room DB en room publique avec serverTime
 function toPublicRoom(room: any): GameRoomPublic {
   return {
     id: room.id,
@@ -84,6 +85,7 @@ function toPublicRoom(room: any): GameRoomPublic {
       rank: p.rank,
     })),
     createdAt: room.createdAt,
+    serverTime: Date.now(), // Always include current server time
   };
 }
 
@@ -279,20 +281,26 @@ export async function joinRoom(
     });
 
     // Vérifier si on atteint le minimum pour démarrer le countdown
+    // ATOMIC: Use updateMany with WHERE clause to prevent race conditions
     const playerCount = room.players.length + 1;
-    let updateData: any = {};
-
+    
     if (room.status === "waiting" && playerCount >= room.minPlayers) {
-      updateData = {
-        status: "countdown",
-        countdownEnd: new Date(Date.now() + COUNTDOWN_SECONDS * 1000),
-      };
+      // Only transition to countdown if still in waiting state
+      await tx.gameRoom.updateMany({
+        where: { 
+          id: room.id,
+          status: "waiting" // Only update if still waiting
+        },
+        data: {
+          status: "countdown",
+          countdownEnd: new Date(Date.now() + COUNTDOWN_SECONDS * 1000),
+        },
+      });
     }
 
-    // Mettre à jour la room
-    const updated = await tx.gameRoom.update({
+    // Fetch final state
+    const updated = await tx.gameRoom.findUnique({
       where: { id: room.id },
-      data: updateData,
       include: { players: true },
     });
 
@@ -308,6 +316,10 @@ export async function joinRoom(
 
     return updated;
   });
+
+  if (!updatedRoom) {
+    return { success: false, error: "erreur lors de la jonction" };
+  }
 
   return { success: true, room: toPublicRoom(updatedRoom) };
 }
@@ -530,11 +542,12 @@ export async function quickMatch(
 }
 
 // ============================================
-// START GAME - Déclenché quand countdown finit
+// START GAME - Server-driven state transition (NO CLIENT LOGIC)
 // ============================================
 export async function checkAndStartGame(
   roomId: string
 ): Promise<{ success: boolean; room?: GameRoomPublic; error?: string }> {
+  // ATOMIC: Fetch and immediately decide on server based on serverTime
   const room = await prisma.gameRoom.findUnique({
     where: { id: roomId },
     include: { players: true },
@@ -544,44 +557,40 @@ export async function checkAndStartGame(
     return { success: false, error: "room introuvable" };
   }
 
-  // Si déjà fini ou en cours, retourner l'état actuel
-  if (room.status === "finished" || room.status === "playing") {
+  // Si déjà fini ou en cours, retourner l'état actuel avec serverTime
+  if (room.status === "finished" || room.status === "playing" || room.status === "revealing") {
     return { success: true, room: toPublicRoom(room) };
   }
 
-  // Vérifier que c'est le moment de démarrer
+  // Only server decides transitions based on countdown
   if (room.status !== "countdown") {
     return { success: true, room: toPublicRoom(room) };
   }
 
-  // Permettre une marge de 2 secondes avant la fin du countdown
-  // pour compenser les latences réseau et décalages d'horloge
-  const now = new Date();
-  const countdownEnd = room.countdownEnd ? new Date(room.countdownEnd) : null;
+  // Server time check - no client clock dependency
+  const now = Date.now();
+  const countdownEnd = room.countdownEnd ? room.countdownEnd.getTime() : null;
   
   if (!countdownEnd) {
     return { success: true, room: toPublicRoom(room) };
   }
   
-  const timeDiff = countdownEnd.getTime() - now.getTime();
-  
-  // Si le countdown n'est pas encore fini (avec 2s de marge), attendre
-  if (timeDiff > 2000) {
+  // Server decides if countdown is done (no client tolerance)
+  if (now < countdownEnd) {
     return { success: true, room: toPublicRoom(room) };
   }
 
-  // C'est l'heure ! Lancer le jeu
-  // Utiliser une transaction pour éviter les doubles démarrages
+  // ATOMIC TRANSITION: Only one process can transition from countdown → playing/finished
   try {
     if (room.gameType === "dice") {
+      // Dice game is instant - atomically transition to finished with results
       return playDiceGame(room);
     } else if (room.gameType === "pfc") {
-      // PFC nécessite les choix des joueurs, on passe en "playing"
-      // Vérifier qu'on n'a pas déjà démarré (race condition)
-      const updated = await prisma.gameRoom.updateMany({
+      // PFC requires player choices - atomically transition to playing
+      const updateResult = await prisma.gameRoom.updateMany({
         where: { 
           id: roomId,
-          status: "countdown" // Seulement si encore en countdown
+          status: "countdown" // CRITICAL: Only update if still in countdown
         },
         data: {
           status: "playing",
@@ -589,8 +598,34 @@ export async function checkAndStartGame(
         },
       });
       
-      // Si aucune mise à jour, quelqu'un d'autre a déjà démarré
-      if (updated.count === 0) {
+      // If count === 0, another process already transitioned
+      if (updateResult.count === 0) {
+        const currentRoom = await prisma.gameRoom.findUnique({
+          where: { id: roomId },
+          include: { players: true },
+        });
+        return { success: true, room: currentRoom ? toPublicRoom(currentRoom) : undefined };
+      }
+      
+      const finalRoom = await prisma.gameRoom.findUnique({
+        where: { id: roomId },
+        include: { players: true },
+      });
+      return { success: true, room: finalRoom ? toPublicRoom(finalRoom) : undefined };
+    } else if (room.gameType === "click_battle") {
+      // Click battle - atomically transition to countdown (3s)
+      const updateResult = await prisma.gameRoom.updateMany({
+        where: { 
+          id: roomId,
+          status: "countdown"
+        },
+        data: {
+          status: "playing",
+          startedAt: new Date(),
+        },
+      });
+      
+      if (updateResult.count === 0) {
         const currentRoom = await prisma.gameRoom.findUnique({
           where: { id: roomId },
           include: { players: true },
@@ -949,10 +984,11 @@ export async function getMyActiveRoom(): Promise<{
 
 // ============================================
 // REMATCH - Créer une nouvelle partie avec les mêmes joueurs
+// RELIABLE: First player creates room with code, others join by code
 // ============================================
 export async function rematchRoom(
   oldRoomId: string
-): Promise<{ success: boolean; room?: GameRoomPublic; error?: string }> {
+): Promise<{ success: boolean; room?: GameRoomPublic; error?: string; code?: string }> {
   const session = await auth();
   if (!session?.user?.id) {
     return { success: false, error: "non connecté" };
@@ -995,7 +1031,28 @@ export async function rematchRoom(
     return { success: false, error: "solde insuffisant" };
   }
 
-  // Créer la nouvelle room avec les mêmes paramètres
+  // RELIABLE REMATCH: Generate consistent code based on old room ID
+  // All players click rematch and get the same code to join
+  const rematchCode = `R${oldRoom.id.slice(-5).toUpperCase()}`;
+  
+  // Try to find existing rematch room first
+  const existingRematch = await prisma.gameRoom.findUnique({
+    where: { code: rematchCode },
+    include: { players: true },
+  });
+
+  if (existingRematch) {
+    // Room already exists - check if we're already in it
+    const alreadyIn = existingRematch.players.some(p => p.userId === userId);
+    if (alreadyIn) {
+      return { success: true, room: toPublicRoom(existingRematch), code: rematchCode };
+    }
+    
+    // Join the existing rematch room
+    return joinRoom(rematchCode);
+  }
+
+  // Create new rematch room with deterministic code
   const newRoom = await prisma.$transaction(async (tx) => {
     // Déduire la mise du créateur
     await tx.user.update({
@@ -1003,7 +1060,7 @@ export async function rematchRoom(
       data: { balance: { decrement: amount } },
     });
 
-    // Créer la room
+    // Créer la room avec le code de rematch
     const room = await tx.gameRoom.create({
       data: {
         gameType: oldRoom.gameType as GameType,
@@ -1011,7 +1068,7 @@ export async function rematchRoom(
         minPlayers: 2,
         maxPlayers: oldRoom.players.length,
         hostId: userId,
-        code: generateRoomCode(),
+        code: rematchCode, // Use deterministic code
         status: "waiting",
         expiresAt: new Date(Date.now() + ROOM_EXPIRE_MINUTES * 60 * 1000),
         players: {
@@ -1038,7 +1095,7 @@ export async function rematchRoom(
     return room;
   });
 
-  return { success: true, room: toPublicRoom(newRoom) };
+  return { success: true, room: toPublicRoom(newRoom), code: rematchCode };
 }
 
 // ============================================

@@ -1,0 +1,972 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
+import {
+  getRobberyTargets,
+  getRobberyCooldown,
+  attemptRobbery,
+  getRobberyHistory,
+  getGlobalRobberyHistory,
+  attemptAntibankRobbery,
+  getAntibankRobberyInfo,
+} from "@/actions/robbery";
+import { getHeistProgress, type HeistProgress } from "@/actions/heist";
+import {
+  getActiveBounties,
+  createBounty,
+  getBountyTargets,
+} from "@/actions/bounty";
+import { BreachGame } from "@/components/breach";
+
+interface RobberyTarget {
+  id: string;
+  discordUsername: string;
+  balance: number;
+  hasBounty: boolean;
+  bountyAmount: number;
+}
+
+interface RobberyHistoryItem {
+  id: string;
+  success: boolean;
+  amount: number;
+  victimName?: string;
+  robberName?: string;
+  isRobber: boolean;
+  createdAt: Date;
+}
+
+interface GlobalRobberyHistoryItem {
+  id: string;
+  success: boolean;
+  amount: number;
+  robberName: string;
+  victimName: string;
+  isHeist: boolean;
+  createdAt: Date;
+}
+
+interface ActiveBounty {
+  id: string;
+  targetId: string;
+  targetName: string;
+  posterId: string;
+  posterName: string;
+  amount: number;
+  expiresAt: Date;
+}
+
+interface InitialData {
+  targets: RobberyTarget[];
+  canRob: boolean;
+  cooldownEnds?: number;
+  history: RobberyHistoryItem[];
+  globalHistory: GlobalRobberyHistoryItem[];
+  bounties: ActiveBounty[];
+  antibankInfo: {
+    canRob: boolean;
+    balance: number;
+    maxSteal: number;
+    riskPercent: number;
+    successChance: number;
+  } | null;
+  heistProgress: HeistProgress | null;
+}
+
+interface RobberyClientProps {
+  userId: string;
+  initialData: InitialData;
+}
+
+export function RobberyClient({ userId, initialData }: RobberyClientProps) {
+  const [targets, setTargets] = useState<RobberyTarget[]>(initialData.targets);
+  const [history, setHistory] = useState<RobberyHistoryItem[]>(initialData.history);
+  const [globalHistory, setGlobalHistory] = useState<GlobalRobberyHistoryItem[]>(initialData.globalHistory);
+  const [bounties, setBounties] = useState<ActiveBounty[]>(initialData.bounties);
+  const [canRob, setCanRob] = useState(initialData.canRob);
+  const [cooldownEnds, setCooldownEnds] = useState<number | undefined>(initialData.cooldownEnds);
+  const [isRobbing, setIsRobbing] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<{
+    success: boolean;
+    amount: number;
+    victimName: string;
+    chance: number;
+    roll: number;
+  } | null>(null);
+
+  // Bounty form state
+  const [showBountyForm, setShowBountyForm] = useState(false);
+  const [bountyTargets, setBountyTargets] = useState<{ id: string; discordUsername: string; balance: number }[]>([]);
+  const [selectedBountyTarget, setSelectedBountyTarget] = useState("");
+  const [bountyAmount, setBountyAmount] = useState("1");
+  const [isCreatingBounty, setIsCreatingBounty] = useState(false);
+
+  // Heist Quest State
+  const [heistProgress, setHeistProgress] = useState<HeistProgress | null>(initialData.heistProgress);
+  const [expandedStage, setExpandedStage] = useState<number | null>(initialData.heistProgress?.currentStage ?? null);
+
+  // ANTIBANK CORP state
+  const [antibankInfo, setAntibankInfo] = useState<{
+    canRob: boolean;
+    balance: number;
+    maxSteal: number;
+    riskPercent: number;
+    successChance: number;
+  } | null>(initialData.antibankInfo);
+  const [isRobbingAntibank, setIsRobbingAntibank] = useState(false);
+
+  // Breach mini-game state
+  const [showBreach, setShowBreach] = useState(false);
+  const [breachTarget, setBreachTarget] = useState<RobberyTarget | null>(null);
+  const [breachDifficulty, setBreachDifficulty] = useState<string>("medium");
+
+  // Practice mode state
+  const [showPractice, setShowPractice] = useState(false);
+  const [showPracticePicker, setShowPracticePicker] = useState(false);
+  const [practiceDifficulty, setPracticeDifficulty] = useState<string>("medium");
+
+  const loadData = useCallback(async () => {
+    const [targetsRes, cooldownRes, historyRes, globalHistoryRes, bountiesRes, antibankRes, heistRes] = await Promise.all([
+      getRobberyTargets(),
+      getRobberyCooldown(),
+      getRobberyHistory(10),
+      getGlobalRobberyHistory(20),
+      getActiveBounties(),
+      getAntibankRobberyInfo(),
+      getHeistProgress(),
+    ]);
+
+    if (targetsRes.success && targetsRes.targets) {
+      setTargets(targetsRes.targets);
+    }
+    setCanRob(cooldownRes.canRob);
+    setCooldownEnds(cooldownRes.cooldownEnds);
+    if (historyRes.success && historyRes.history) {
+      setHistory(historyRes.history);
+    }
+    if (globalHistoryRes.success && globalHistoryRes.history) {
+      setGlobalHistory(globalHistoryRes.history);
+    }
+    if (bountiesRes.success && bountiesRes.bounties) {
+      setBounties(bountiesRes.bounties);
+    }
+    setAntibankInfo(antibankRes);
+    setHeistProgress(heistRes);
+    
+    // Auto-expand current stage
+    if (heistRes) {
+      setExpandedStage(heistRes.currentStage);
+    }
+  }, []);
+
+  // Auto-refresh global history every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const res = await getGlobalRobberyHistory(20);
+      if (res.success && res.history) {
+        setGlobalHistory(res.history);
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Cooldown countdown avec re-render chaque seconde
+  const [cooldownDisplay, setCooldownDisplay] = useState<string>("");
+  
+  useEffect(() => {
+    if (!cooldownEnds) {
+      setCooldownDisplay("");
+      return;
+    }
+
+    const updateCooldown = () => {
+      const remaining = cooldownEnds - Date.now();
+      if (remaining <= 0) {
+        setCanRob(true);
+        setCooldownEnds(undefined);
+        setCooldownDisplay("");
+      } else {
+        setCooldownDisplay(formatCooldown(remaining));
+      }
+    };
+
+    updateCooldown(); // Initial
+    const interval = setInterval(updateCooldown, 1000);
+
+    return () => clearInterval(interval);
+  }, [cooldownEnds]);
+
+  // Ouvre le mini-jeu Breach pour une cible
+  const handleStartBreach = (target: RobberyTarget) => {
+    if (!canRob || isRobbing) return;
+    
+    // Déterminer la difficulté en fonction de la balance de la cible
+    let difficulty = "easy";
+    if (target.balance >= 2000) {
+      difficulty = "hard";
+    } else if (target.balance >= 500) {
+      difficulty = "medium";
+    }
+    
+    setBreachTarget(target);
+    setBreachDifficulty(difficulty);
+    setShowBreach(true);
+    setLastResult(null);
+  };
+
+  // Callback quand le mini-jeu Breach est terminé
+  const handleBreachComplete = async (breachResult: {
+    success: boolean;
+    sequencesSolved: number;
+    totalSequences: number;
+    lootMultiplier: number;
+  }) => {
+    if (!breachTarget) return;
+    
+    setShowBreach(false);
+    setIsRobbing(breachTarget.id);
+
+    // Envoyer le résultat au serveur
+    const result = await attemptRobbery(breachTarget.id, {
+      sequencesSolved: breachResult.sequencesSolved,
+      totalSequences: breachResult.totalSequences,
+      lootMultiplier: breachResult.lootMultiplier,
+    });
+
+    if (result.success && result.robbery) {
+      setLastResult(result.robbery);
+      setCanRob(false);
+      // Cooldown: 2 min pour beta
+      const cooldownMs = 2 * 60 * 1000;
+      setCooldownEnds(Date.now() + cooldownMs);
+      loadData();
+    }
+
+    setIsRobbing(null);
+    setBreachTarget(null);
+  };
+
+  // Annuler le mini-jeu
+  const handleBreachCancel = () => {
+    setShowBreach(false);
+    setBreachTarget(null);
+  };
+
+  // Ancien système (fallback) - gardé pour compatibilité
+  const handleRob = async (targetId: string) => {
+    if (isRobbing) return;
+    setIsRobbing(targetId);
+    setLastResult(null);
+
+    const result = await attemptRobbery(targetId);
+
+    if (result.success && result.robbery) {
+      setLastResult(result.robbery);
+      setCanRob(false);
+      // Cooldown: 2 min pour beta
+      const cooldownMs = 2 * 60 * 1000;
+      setCooldownEnds(Date.now() + cooldownMs);
+      loadData();
+    }
+
+    setIsRobbing(null);
+  };
+
+  const handleRobAntibank = async () => {
+    if (isRobbingAntibank || !canRob) return;
+    setIsRobbingAntibank(true);
+    setLastResult(null);
+
+    const result = await attemptAntibankRobbery();
+
+    if (result.success && result.robbery) {
+      setLastResult(result.robbery);
+      setCanRob(false);
+      // Cooldown: 25 min si réussi, 15 min si raté
+      const cooldownMs = result.robbery.success ? 25 * 60 * 1000 : 15 * 60 * 1000;
+      setCooldownEnds(Date.now() + cooldownMs);
+      loadData();
+    }
+
+    setIsRobbingAntibank(false);
+  };
+
+  const handleOpenBountyForm = async () => {
+    setShowBountyForm(true);
+    const res = await getBountyTargets();
+    if (res.success && res.targets) {
+      setBountyTargets(res.targets);
+    }
+  };
+
+  const handleCreateBounty = async () => {
+    if (!selectedBountyTarget || isCreatingBounty) return;
+    setIsCreatingBounty(true);
+
+    const amount = parseFloat(bountyAmount);
+    if (isNaN(amount) || amount < 1) {
+      setIsCreatingBounty(false);
+      return;
+    }
+
+    const result = await createBounty(selectedBountyTarget, amount);
+    
+    if (result.success) {
+      setShowBountyForm(false);
+      setSelectedBountyTarget("");
+      setBountyAmount("1");
+      loadData();
+    }
+
+    setIsCreatingBounty(false);
+  };
+
+  const formatCooldown = (ms: number) => {
+    const hours = Math.floor(ms / (1000 * 60 * 60));
+    const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((ms % (1000 * 60)) / 1000);
+    return `${hours}h ${minutes}m ${seconds}s`;
+  };
+
+  const formatTimeAgo = (date: Date) => {
+    const now = Date.now();
+    const diff = now - new Date(date).getTime();
+    const minutes = Math.floor(diff / (1000 * 60));
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    
+    if (hours > 0) return `il y a ${hours}h`;
+    if (minutes > 0) return `il y a ${minutes}m`;
+    return "a l'instant";
+  };
+
+  // Practice mode handlers
+  const handleStartPractice = (difficulty: string) => {
+    setPracticeDifficulty(difficulty);
+    setShowPracticePicker(false);
+    setShowPractice(true);
+  };
+
+  const handlePracticeComplete = () => {
+    // En mode entrainement, on ne fait rien - le joueur peut rejouer ou quitter
+  };
+
+  const handlePracticeCancel = () => {
+    setShowPractice(false);
+  };
+
+  return (
+    <>
+      {/* Modal Breach Game */}
+      {showBreach && breachTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
+          <BreachGame
+            difficulty={breachDifficulty}
+            targetName={breachTarget.discordUsername}
+            potentialLoot={breachTarget.balance * 0.15} // ~15% estimation
+            onComplete={handleBreachComplete}
+            onCancel={handleBreachCancel}
+          />
+        </div>
+      )}
+
+      {/* Modal Practice Mode */}
+      {showPractice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
+          <BreachGame
+            difficulty={practiceDifficulty}
+            practiceMode={true}
+            onComplete={handlePracticeComplete}
+            onCancel={handlePracticeCancel}
+          />
+        </div>
+      )}
+
+      {/* Modal Practice Difficulty Picker */}
+      {showPracticePicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="flex flex-col gap-4 p-6 border border-[var(--line)] bg-[rgba(0,0,0,0.9)] max-w-[350px] w-full">
+            <div className="flex items-center justify-between border-b border-[var(--line)] pb-4">
+              <h2 className="text-[0.75rem] uppercase tracking-widest text-yellow-400">
+                entrainement
+              </h2>
+              <button
+                onClick={() => setShowPracticePicker(false)}
+                className="text-[0.65rem] uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+              >
+                fermer
+              </button>
+            </div>
+            
+            <p className="text-[0.7rem] text-[var(--text-muted)] text-center">
+              choisis une difficulte
+            </p>
+
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => handleStartPractice("easy")}
+                className="p-3 border border-green-500/30 hover:border-green-500 hover:bg-green-500/10 transition-all text-left"
+              >
+                <span className="text-green-400 text-sm uppercase tracking-wider">facile</span>
+                <p className="text-[0.65rem] text-[var(--text-muted)] mt-1">
+                  grille 4x4 · 1 sequence · buffer 5 · 45s
+                </p>
+              </button>
+
+              <button
+                onClick={() => handleStartPractice("medium")}
+                className="p-3 border border-yellow-500/30 hover:border-yellow-500 hover:bg-yellow-500/10 transition-all text-left"
+              >
+                <span className="text-yellow-400 text-sm uppercase tracking-wider">moyen</span>
+                <p className="text-[0.65rem] text-[var(--text-muted)] mt-1">
+                  grille 5x5 · 2 sequences · buffer 5 · 40s
+                </p>
+              </button>
+
+              <button
+                onClick={() => handleStartPractice("hard")}
+                className="p-3 border border-red-500/30 hover:border-red-500 hover:bg-red-500/10 transition-all text-left"
+              >
+                <span className="text-red-400 text-sm uppercase tracking-wider">difficile</span>
+                <p className="text-[0.65rem] text-[var(--text-muted)] mt-1">
+                  grille 6x6 · 3 sequences · buffer 6 · 35s
+                </p>
+              </button>
+
+              <button
+                onClick={() => handleStartPractice("antibank")}
+                className="p-3 border border-purple-500/30 hover:border-purple-500 hover:bg-purple-500/10 transition-all text-left"
+              >
+                <span className="text-purple-400 text-sm uppercase tracking-wider">antibank</span>
+                <p className="text-[0.65rem] text-[var(--text-muted)] mt-1">
+                  grille 6x6 · 3 sequences · buffer 4 · 30s
+                </p>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="max-w-[600px] w-full flex flex-col gap-6 animate-fade-in">
+        {/* Header */}
+        <header className="flex items-center justify-center border-b border-[var(--line)] pb-4">
+          <h1 className="text-[0.85rem] uppercase tracking-widest">braquages</h1>
+        </header>
+
+      {/* Practice Button */}
+      <button
+        onClick={() => setShowPracticePicker(true)}
+        className="w-full py-3 text-[0.75rem] uppercase tracking-widest border border-yellow-500/30 text-yellow-400 hover:border-yellow-500 hover:bg-yellow-500/10 transition-all"
+      >
+        s'entrainer
+      </button>
+
+      {/* Cooldown Status */}
+      {!canRob && cooldownDisplay && (
+        <div className="text-center p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
+          <p className="text-[var(--text-muted)] text-sm">
+            prochain braquage dans{" "}
+            <span className="text-[var(--text)] tabular-nums">
+              {cooldownDisplay}
+            </span>
+          </p>
+        </div>
+      )}
+
+      {/* Last Result */}
+      {lastResult && (
+        <div
+          className={`p-4 border ${
+            lastResult.success
+              ? "border-green-500/50 bg-green-500/5"
+              : "border-red-500/50 bg-red-500/5"
+          }`}
+        >
+          <p className="text-center">
+            {lastResult.success ? (
+              <>
+                <span className="text-green-400">braquage réussi!</span>
+                <br />
+                <span className="text-[var(--text-muted)] text-sm">
+                  +{lastResult.amount.toFixed(2)} volés à {lastResult.victimName}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="text-red-400">braquage raté!</span>
+                <br />
+                <span className="text-[var(--text-muted)] text-sm">
+                  -{lastResult.amount.toFixed(2)} de pénalité
+                </span>
+              </>
+            )}
+            <br />
+            <span className="text-[0.7rem] text-[var(--text-muted)]">
+              chance: {lastResult.chance}% | de: {lastResult.roll}
+            </span>
+          </p>
+        </div>
+      )}
+
+      {/* Targets */}
+      <section>
+        <h2 className="text-[0.75rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">
+          cibles disponibles
+        </h2>
+        {targets.length === 0 ? (
+          <p className="text-[var(--text-muted)] text-sm text-center py-4">
+            aucune cible disponible (tu es le plus riche?)
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {targets.map((target) => (
+              <div
+                key={target.id}
+                className="flex items-center justify-between p-3 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]"
+              >
+                <div>
+                  <p className="text-sm">{target.discordUsername}</p>
+                  <p className="text-[0.7rem] text-[var(--text-muted)]">
+                    {target.balance.toFixed(2)}€
+                    {target.hasBounty && (
+                      <span className="text-yellow-400 ml-2">
+                        +{target.bountyAmount.toFixed(2)}€ prime
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleStartBreach(target)}
+                  disabled={!canRob || isRobbing !== null || showBreach}
+                  className={`
+                    px-3 py-1.5 text-[0.75rem] uppercase tracking-wider border
+                    ${
+                      canRob && !isRobbing && !showBreach
+                        ? "border-green-500/50 text-green-400 hover:border-green-500 hover:bg-green-500/10"
+                        : "border-[var(--line)] text-[var(--text-muted)] cursor-not-allowed"
+                    }
+                    transition-all
+                  `}
+                >
+                  {isRobbing === target.id ? "..." : "breach"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Active Bounties */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-[0.75rem] uppercase tracking-widest text-[var(--text-muted)]">
+            primes actives
+          </h2>
+          <button
+            onClick={handleOpenBountyForm}
+            className="text-[0.7rem] uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+          >
+            + nouvelle prime
+          </button>
+        </div>
+
+        {showBountyForm && (
+          <div className="mb-4 p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.02)]">
+            <div className="flex flex-col gap-3">
+              <select
+                value={selectedBountyTarget}
+                onChange={(e) => setSelectedBountyTarget(e.target.value)}
+                className="bg-[#1a1a1a] border border-[var(--line)] p-2 text-sm text-[var(--text)] rounded"
+              >
+                <option value="" className="bg-[#1a1a1a] text-[var(--text)]">choisir une cible</option>
+                {bountyTargets.map((t) => (
+                  <option key={t.id} value={t.id} className="bg-[#1a1a1a] text-[var(--text)]">
+                    {t.discordUsername} ({t.balance.toFixed(2)}€)
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="1"
+                step="0.5"
+                value={bountyAmount}
+                onChange={(e) => setBountyAmount(e.target.value)}
+                placeholder="montant"
+                className="bg-transparent border border-[var(--line)] p-2 text-sm"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCreateBounty}
+                  disabled={!selectedBountyTarget || isCreatingBounty}
+                  className="flex-1 py-2 text-[0.75rem] uppercase tracking-wider border border-[var(--text-muted)] hover:border-[var(--text)] transition-all"
+                >
+                  {isCreatingBounty ? "..." : "poster la prime"}
+                </button>
+                <button
+                  onClick={() => setShowBountyForm(false)}
+                  className="px-3 py-2 text-[0.75rem] uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)]"
+                >
+                  annuler
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {bounties.length === 0 ? (
+          <p className="text-[var(--text-muted)] text-sm text-center py-4">
+            aucune prime active
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {bounties.map((bounty) => (
+              <div
+                key={bounty.id}
+                className="flex items-center justify-between p-3 border border-yellow-500/30 bg-yellow-500/5"
+              >
+                <div>
+                  <p className="text-sm text-yellow-400">
+                    {bounty.amount.toFixed(2)} sur {bounty.targetName}
+                  </p>
+                  <p className="text-[0.7rem] text-[var(--text-muted)]">
+                    par {bounty.posterName}
+                  </p>
+                </div>
+                <span className="text-[0.7rem] text-[var(--text-muted)]">
+                  expire dans{" "}
+                  {Math.ceil(
+                    (new Date(bounty.expiresAt).getTime() - Date.now()) /
+                      (1000 * 60 * 60)
+                  )}
+                  h
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Global History */}
+      <section>
+        <h2 className="text-[0.75rem] uppercase tracking-widest text-[var(--text-muted)] mb-3">
+          derniers braquages
+        </h2>
+        {globalHistory.length === 0 ? (
+          <p className="text-[var(--text-muted)] text-sm text-center py-4">
+            aucun braquage
+          </p>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {globalHistory.map((item) => (
+              <div
+                key={item.id}
+                className={`flex items-center justify-between p-2 text-[0.75rem] border-b border-[var(--line)]/30 last:border-0 ${
+                  item.isHeist 
+                    ? item.success 
+                      ? "bg-gradient-to-r from-red-500/10 to-transparent border-l-2 border-l-red-500" 
+                      : "bg-gradient-to-r from-red-900/20 to-transparent border-l-2 border-l-red-700 animate-pulse"
+                    : ""
+                }`}
+              >
+                <span className="flex items-center gap-1.5 flex-wrap">
+                  {item.isHeist ? (
+                    // HEIST ANTIBANK - Style distinctif
+                    item.success ? (
+                      <>
+                        <span className="text-[0.6rem] uppercase tracking-wider px-1.5 py-0.5 bg-red-500 text-black font-bold">heist</span>
+                        <span className="text-red-400 font-medium">{item.robberName}</span>
+                        <span className="text-red-300">braque</span>
+                        <span className="text-red-500 font-bold">{item.victimName}</span>
+                        <span className="text-green-400 font-mono font-bold">+{item.amount.toFixed(2)}€</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-[0.6rem] uppercase tracking-wider px-1.5 py-0.5 border border-red-700 text-red-600">echec</span>
+                        <span className="text-red-400/80">{item.robberName}</span>
+                        <span className="text-red-500/60">tente</span>
+                        <span className="text-red-600 font-bold">{item.victimName}</span>
+                        <span className="text-red-500 font-mono">-{item.amount.toFixed(2)}€</span>
+                      </>
+                    )
+                  ) : (
+                    // Braquage P2P classique
+                    item.success ? (
+                      <>
+                        <span className="text-green-400">{item.robberName}</span>
+                        <span className="text-[var(--text-muted)]">braque</span>
+                        <span>{item.victimName}</span>
+                        <span className="text-green-500">+{item.amount.toFixed(2)}€</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-red-400">{item.robberName}</span>
+                        <span className="text-[var(--text-muted)]">rate</span>
+                        <span>{item.victimName}</span>
+                        <span className="text-red-500">-{item.amount.toFixed(2)}€</span>
+                      </>
+                    )
+                  )}
+                </span>
+                <span className="text-[var(--text-muted)] text-[0.65rem] whitespace-nowrap ml-2">
+                  {formatTimeAgo(item.createdAt)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Info */}
+      <div className="text-center p-4 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
+        <p className="text-[0.7rem] text-[var(--text-muted)]">
+          complete le mini-jeu breach pour reussir le braquage
+          <br />
+          0 sequence = echec | 1+ sequences = succes
+          <br />
+          plus de sequences = plus de butin (jusqu'a +10%)
+          <br />
+          <span className="text-yellow-400">beta: cooldown 2 min</span>
+        </p>
+      </div>
+
+      {/* OPERATION ANTIBANK - En bas de page */}
+      {heistProgress && (
+        <section className="mt-8">
+          <h2 className="text-[0.75rem] uppercase tracking-widest text-red-500 mb-3">
+            operation antibank
+          </h2>
+          
+          {/* Tresor actuel */}
+          {antibankInfo && (
+            <div className="mb-4 p-4 border border-red-500/30 bg-red-500/5 text-center">
+              <p className="text-[0.7rem] text-[var(--text-muted)]">
+                tresor actuel: <span className="text-red-400 text-lg font-mono">{antibankInfo.balance.toFixed(2)}€</span>
+              </p>
+            </div>
+          )}
+
+          {/* Accordeon Regles */}
+          <details className="border border-red-500/30 bg-red-500/5 group">
+            <summary className="p-4 cursor-pointer text-red-400 text-[0.8rem] uppercase tracking-widest flex items-center justify-between hover:bg-red-500/10 transition-colors">
+              <span>regles du braquage</span>
+              <span className="text-red-500/50 group-open:rotate-180 transition-transform">▼</span>
+            </summary>
+            <div className="p-4 pt-0 border-t border-red-500/20 text-[0.75rem] space-y-4">
+              {/* Gains */}
+              <div>
+                <p className="text-red-400 uppercase tracking-wider text-[0.7rem] mb-2">si tu reussis</p>
+                <div className="space-y-1 text-[var(--text-muted)]">
+                  <p>• tu voles <span className="text-green-400">8-18%</span> du tresor d'ANTIBANK</p>
+                  <p>• base: 8% | max avec boosters: 18%</p>
+                  <p>• les frais d'entree (100€) sont perdus quoi qu'il arrive</p>
+                </div>
+              </div>
+
+              {/* Pertes */}
+              <div>
+                <p className="text-red-400 uppercase tracking-wider text-[0.7rem] mb-2">si tu rates</p>
+                <div className="space-y-1 text-[var(--text-muted)]">
+                  <p>• tu perds <span className="text-red-400">40-60%</span> de ta balance</p>
+                  <p>• base: 60% | min avec VPN: 40%</p>
+                  <p>• l'argent perdu va dans le tresor ANTIBANK</p>
+                </div>
+              </div>
+
+              {/* Chances */}
+              <div>
+                <p className="text-red-400 uppercase tracking-wider text-[0.7rem] mb-2">chances de succes</p>
+                <div className="space-y-1 text-[var(--text-muted)]">
+                  <p>• base: <span className="text-yellow-400">30%</span></p>
+                  <p>• +10% avec gilet pare-balles</p>
+                  <p>• +5% par booster actif (stage 4)</p>
+                  <p>• max: <span className="text-green-400">45%</span></p>
+                </div>
+              </div>
+
+              {/* Items */}
+              <div>
+                <p className="text-red-400 uppercase tracking-wider text-[0.7rem] mb-2">equipement requis</p>
+                <div className="space-y-1 text-[var(--text-muted)]">
+                  <p>• pied-de-biche (8€) - obligatoire</p>
+                  <p>• kit de crochetage (20€) - obligatoire</p>
+                  <p>• gilet pare-balles (15€) - optionnel, +10% chance</p>
+                  <p>• VPN (12€) - optionnel, reduit pertes de 60% a 40%</p>
+                </div>
+              </div>
+
+              {/* Cooldown */}
+              <div>
+                <p className="text-red-400 uppercase tracking-wider text-[0.7rem] mb-2">autres</p>
+                <div className="space-y-1 text-[var(--text-muted)]">
+                  <p>• frais d'entree: <span className="text-red-400">100€</span> (toujours perdus)</p>
+                  <p>• cooldown: <span className="text-yellow-400">6h</span> entre chaque tentative</p>
+                  <p>• doit etre en vocal avec 2+ personnes pour lancer</p>
+                  <p>• les boosters reset apres chaque tentative</p>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          {/* Quest Progress */}
+          <div className="mt-4 flex flex-col border border-red-500/30 bg-[rgba(255,0,0,0.02)]">
+            
+            {/* Header / Global Status */}
+            <div className="p-4 border-b border-red-500/20">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-red-400">progression</span>
+                <span className="text-[0.7rem] text-[var(--text-muted)]">
+                  etape {heistProgress.currentStage}/5
+                </span>
+              </div>
+              <div className="h-1 w-full bg-[#1a1a1a] overflow-hidden">
+                <div 
+                  className="h-full bg-red-500 transition-all duration-500"
+                  style={{ width: `${(heistProgress.stages.filter(s => s.complete).length / 5) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Stages */}
+            {heistProgress.stages.map((stage) => {
+              const isLocked = stage.stage > heistProgress.currentStage;
+              const isCurrent = stage.stage === heistProgress.currentStage;
+              const isExpanded = expandedStage === stage.stage || (stage.complete && expandedStage === stage.stage);
+
+              return (
+                <div key={stage.stage} className={`border-b border-red-500/20 last:border-0 ${isLocked ? 'opacity-50' : ''}`}>
+                  <button
+                    onClick={() => !isLocked && setExpandedStage(isExpanded ? null : stage.stage)}
+                    disabled={isLocked}
+                    className="w-full flex items-center justify-between p-4 hover:bg-red-500/5 transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex gap-0.5">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <div 
+                            key={i} 
+                            className={`w-1.5 h-1.5 ${i + 1 <= stage.stage ? (stage.complete ? 'bg-green-500' : 'bg-red-500') : 'bg-[var(--line)]'}`}
+                          />
+                        ))}
+                      </div>
+                      <span className={`text-sm uppercase tracking-wider ${isCurrent ? 'text-red-400' : 'text-[var(--text-muted)]'}`}>
+                        stage {stage.stage}: {stage.name}
+                      </span>
+                    </div>
+                    {stage.complete && <span className="text-green-500 text-[0.8rem]">✓</span>}
+                    {isLocked && <span className="text-[0.7rem] text-[var(--text-muted)]">(verrouille)</span>}
+                  </button>
+
+                  {/* Stage Details */}
+                  {isExpanded && !isLocked && (
+                    <div className="px-4 pb-4 pt-0 animate-fade-in">
+                      <div className="pl-4 border-l border-red-500/30 ml-2 space-y-4">
+                        {stage.requirements.map((req) => (
+                          <div key={req.id} className="space-y-1">
+                            <div className="flex items-center justify-between text-[0.75rem]">
+                              <span className={req.complete ? "text-[var(--text-muted)] line-through" : "text-[var(--text)]"}>
+                                {req.label}
+                              </span>
+                              <span className={req.complete ? "text-green-500" : "text-[var(--text-muted)]"}>
+                                {req.id === 'balance' || req.id === 'entry_fee' ? `${req.current.toFixed(2)}€` : req.current} / {req.required}{req.id === 'balance' || req.id === 'entry_fee' ? '€' : ''}
+                              </span>
+                            </div>
+                            <div className="h-0.5 w-full bg-[#1a1a1a]">
+                              <div 
+                                className={`h-full transition-all duration-500 ${req.complete ? 'bg-green-500' : 'bg-red-500/50'}`}
+                                style={{ width: `${Math.min(100, (req.current / req.required) * 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* Stage 4 Boosters Display */}
+                        {stage.stage === 4 && (
+                          <div className="mt-4 p-3 bg-[rgba(255,0,0,0.05)] border border-red-500/20">
+                            <p className="text-[0.7rem] uppercase tracking-wider text-red-400/70 mb-2">bonus actifs</p>
+                            <div className="space-y-1 text-[0.7rem]">
+                              {heistProgress.bonuses.chanceBonus > 0 && (
+                                <div className="flex justify-between text-green-400">
+                                  <span>+ chance de reussite</span>
+                                  <span>+{heistProgress.bonuses.chanceBonus}%</span>
+                                </div>
+                              )}
+                              {heistProgress.bonuses.lootBonus > 0 && (
+                                <div className="flex justify-between text-green-400">
+                                  <span>+ butin vole</span>
+                                  <span>+{heistProgress.bonuses.lootBonus}%</span>
+                                </div>
+                              )}
+                              {heistProgress.bonuses.lossReduction > 0 && (
+                                <div className="flex justify-between text-green-400">
+                                  <span>- perte en cas d'echec</span>
+                                  <span>-{heistProgress.bonuses.lossReduction}%</span>
+                                </div>
+                              )}
+                              {Object.values(heistProgress.bonuses).every(v => v === 0) && (
+                                <span className="text-[var(--text-muted)] italic">aucun bonus actif</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Stage 5 Launch Panel */}
+                        {stage.stage === 5 && (
+                          <div className="mt-4 space-y-3">
+                            <div className="p-3 bg-[rgba(255,0,0,0.05)] border border-red-500/20 space-y-2">
+                              <p className="text-[0.7rem] uppercase tracking-wider text-red-400/70 mb-2">stats finales</p>
+                              
+                              <div className="flex justify-between text-[0.75rem]">
+                                <span className="text-[var(--text-muted)]">succes</span>
+                                <span className={heistProgress.finalStats.successChance >= 40 ? "text-green-400" : "text-yellow-400"}>
+                                  {heistProgress.finalStats.successChance}%
+                                </span>
+                              </div>
+                              <div className="flex justify-between text-[0.75rem]">
+                                <span className="text-[var(--text-muted)]">tresor vise</span>
+                                <span className="text-green-400">
+                                  {heistProgress.finalStats.treasurySteal}% ({antibankInfo ? (antibankInfo.balance * heistProgress.finalStats.treasurySteal / 100).toFixed(2) : '?'}€)
+                                </span>
+                              </div>
+                              <div className="flex justify-between text-[0.75rem]">
+                                <span className="text-[var(--text-muted)]">perte echec</span>
+                                <span className="text-red-400">
+                                  {heistProgress.finalStats.failLoss}%
+                                </span>
+                              </div>
+                            </div>
+
+                            <button
+                              onClick={handleRobAntibank}
+                              disabled={!heistProgress.canAttemptHeist || isRobbingAntibank}
+                              className={`
+                                w-full py-3 text-[0.8rem] uppercase tracking-widest border-2
+                                ${heistProgress.canAttemptHeist && !isRobbingAntibank
+                                  ? "border-red-500 bg-red-500/20 text-red-400 hover:bg-red-500/30" 
+                                  : "border-red-500/30 text-red-500/50 cursor-not-allowed bg-[#1a1a1a]"
+                                }
+                                transition-all
+                              `}
+                            >
+                              {isRobbingAntibank ? "lancement..." : "lancer l'operation"}
+                            </button>
+                            
+                            {heistProgress.cooldownEndsAt && (
+                              <p className="text-center text-[0.7rem] text-red-400">
+                                recuperation en cours...
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+      </div>
+    </>
+  );
+}

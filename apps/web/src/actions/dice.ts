@@ -10,6 +10,7 @@ export interface CreateChallengeResult {
   success: boolean;
   error?: string;
   gameId?: string;
+  serverTime?: number;
 }
 
 export interface AcceptChallengeResult {
@@ -21,6 +22,24 @@ export interface AcceptChallengeResult {
   player2Dice?: [number, number];
   winnerId?: string | null;
   profit?: number;
+  serverTime?: number;
+}
+
+export interface DiceGameState {
+  success: boolean;
+  error?: string;
+  game?: {
+    id: string;
+    status: string;
+    player1Roll?: number | null;
+    player2Roll?: number | null;
+    winnerId?: string | null;
+    amount: number;
+    player1Name: string;
+    player2Name: string;
+    completedAt?: Date | null;
+  };
+  serverTime: number;
 }
 
 /**
@@ -77,22 +96,22 @@ export async function createDiceChallenge(
       },
     });
 
-    return { success: true, gameId: game.id };
+    return { success: true, gameId: game.id, serverTime: Date.now() };
   } catch (error) {
     console.error("Create dice challenge error:", error);
-    return { success: false, error: "erreur serveur" };
+    return { success: false, error: "erreur serveur", serverTime: Date.now() };
   }
 }
 
 /**
- * Accepte un défi de dés
+ * Accepte un défi de dés - ATOMIC with updateMany to prevent race conditions
  */
 export async function acceptDiceChallenge(
   gameId: string
 ): Promise<AcceptChallengeResult> {
   const session = await auth();
   if (!session?.user?.id) {
-    return { success: false, error: "non connecté" };
+    return { success: false, error: "non connecté", serverTime: Date.now() };
   }
 
   const game = await prisma.diceGame.findUnique({
@@ -100,15 +119,11 @@ export async function acceptDiceChallenge(
   });
 
   if (!game) {
-    return { success: false, error: "défi introuvable" };
-  }
-
-  if (game.status !== "pending") {
-    return { success: false, error: "défi déjà traité" };
+    return { success: false, error: "défi introuvable", serverTime: Date.now() };
   }
 
   if (game.player2Id !== session.user.id) {
-    return { success: false, error: "ce défi n'est pas pour toi" };
+    return { success: false, error: "ce défi n'est pas pour toi", serverTime: Date.now() };
   }
 
   if (new Date() > game.expiresAt) {
@@ -116,7 +131,7 @@ export async function acceptDiceChallenge(
       where: { id: gameId },
       data: { status: "expired" },
     });
-    return { success: false, error: "défi expiré" };
+    return { success: false, error: "défi expiré", serverTime: Date.now() };
   }
 
   // Lancer les dés avec valeurs individuelles
@@ -140,6 +155,31 @@ export async function acceptDiceChallenge(
       : game.player2Id;
 
   try {
+    // ATOMIC: Use updateMany to prevent race conditions
+    const updateResult = await prisma.diceGame.updateMany({
+      where: { 
+        id: gameId, 
+        status: "pending" // Only update if still pending
+      },
+      data: { status: "playing" } // Temporary lock status
+    });
+
+    // If count === 0, another process already accepted
+    if (updateResult.count === 0) {
+      // Return current state with serverTime
+      const currentGame = await prisma.diceGame.findUnique({
+        where: { id: gameId },
+      });
+      if (currentGame?.status === "completed") {
+        return { 
+          success: false, 
+          error: "défi déjà accepté",
+          serverTime: Date.now()
+        };
+      }
+      return { success: false, error: "défi déjà traité", serverTime: Date.now() };
+    }
+
     await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Déduire les mises
       await tx.user.update({
@@ -210,10 +250,11 @@ export async function acceptDiceChallenge(
       player2Dice,
       winnerId,
       profit: myProfit,
+      serverTime: Date.now(),
     };
   } catch (error) {
     console.error("Accept dice challenge error:", error);
-    return { success: false, error: "erreur serveur" };
+    return { success: false, error: "erreur serveur", serverTime: Date.now() };
   }
 }
 
@@ -290,7 +331,51 @@ export async function getPendingDiceChallenges() {
 }
 
 /**
+ * Récupère l'état d'une partie de dés (pour polling)
+ */
+export async function getDiceGameState(gameId: string): Promise<DiceGameState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { success: false, error: "non connecté", serverTime: Date.now() };
+  }
+
+  const game = await prisma.diceGame.findUnique({
+    where: { id: gameId },
+    include: {
+      player1: { select: { id: true, discordUsername: true } },
+      player2: { select: { id: true, discordUsername: true } },
+    },
+  });
+
+  if (!game) {
+    return { success: false, error: "partie introuvable", serverTime: Date.now() };
+  }
+
+  // Vérifier que l'utilisateur est dans la partie
+  if (game.player1Id !== session.user.id && game.player2Id !== session.user.id) {
+    return { success: false, error: "pas dans cette partie", serverTime: Date.now() };
+  }
+
+  return {
+    success: true,
+    game: {
+      id: game.id,
+      status: game.status,
+      player1Roll: game.player1Roll,
+      player2Roll: game.player2Roll,
+      winnerId: game.winnerId,
+      amount: Number(game.amount),
+      player1Name: game.player1?.discordUsername || "?",
+      player2Name: game.player2?.discordUsername || "?",
+      completedAt: game.completedAt,
+    },
+    serverTime: Date.now(),
+  };
+}
+
+/**
  * Récupère les parties de dés récemment terminées (pour notification player1)
+ * DEPRECATED: Use getDiceGameState instead for reliable polling
  */
 export async function getRecentDiceResults() {
   const session = await auth();
@@ -447,15 +532,15 @@ export interface PlayVsBotResult {
  * Le bot lance des dés 100% aléatoires - aucun avantage
  */
 /**
- * Demande un rematch après une partie terminée
- * Si les deux joueurs demandent, une nouvelle partie est automatiquement lancée
+ * Demande un rematch après une partie terminée - DETERMINISTIC code system (no voting race conditions)
+ * Uses code format: RD{last5chars} - same code for both players
  */
 export async function requestDiceRematch(
   gameId: string
-): Promise<{ success: boolean; error?: string; rematchStarted?: boolean; newGameId?: string }> {
+): Promise<{ success: boolean; error?: string; code?: string; newGameId?: string; serverTime?: number }> {
   const session = await auth();
   if (!session?.user?.id) {
-    return { success: false, error: "non connecté" };
+    return { success: false, error: "non connecté", serverTime: Date.now() };
   }
 
   const game = await prisma.diceGame.findUnique({
@@ -467,109 +552,107 @@ export async function requestDiceRematch(
   });
 
   if (!game) {
-    return { success: false, error: "partie introuvable" };
+    return { success: false, error: "partie introuvable", serverTime: Date.now() };
   }
 
   if (game.status !== "completed") {
-    return { success: false, error: "partie non terminée" };
+    return { success: false, error: "partie non terminée", serverTime: Date.now() };
   }
 
   // Vérifier que l'utilisateur était dans la partie
   const isPlayer1 = game.player1Id === session.user.id;
   const isPlayer2 = game.player2Id === session.user.id;
   if (!isPlayer1 && !isPlayer2) {
-    return { success: false, error: "tu n'étais pas dans cette partie" };
+    return { success: false, error: "tu n'étais pas dans cette partie", serverTime: Date.now() };
   }
 
   // Vérifier que la partie n'est pas trop vieille (max 5 min)
   if (game.completedAt && Date.now() - game.completedAt.getTime() > 5 * 60 * 1000) {
-    return { success: false, error: "rematch expiré" };
+    return { success: false, error: "rematch expiré", serverTime: Date.now() };
   }
 
   const amount = Number(game.amount);
 
-  // Vérifier les soldes
-  if (Number(game.player1?.balance) < amount) {
-    return { success: false, error: "solde insuffisant (joueur 1)" };
-  }
-  if (Number(game.player2?.balance) < amount) {
-    return { success: false, error: "solde insuffisant (joueur 2)" };
-  }
-
-  // Mettre à jour le vote rematch
-  const updatedGame = await prisma.diceGame.update({
-    where: { id: gameId },
-    data: isPlayer1 
-      ? { player1WantsRematch: true }
-      : { player2WantsRematch: true },
+  // Vérifier le solde de l'utilisateur actuel
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { balance: true, discordUsername: true },
   });
 
-  // Vérifier si les deux joueurs veulent un rematch
-  const bothWantRematch = isPlayer1 
-    ? (true && updatedGame.player2WantsRematch)
-    : (updatedGame.player1WantsRematch && true);
-
-  if (bothWantRematch) {
-    // Les deux veulent rejouer - créer directement une partie en "playing"
-    // et déduire les mises immédiatement
-    const newGame = await prisma.$transaction(async (tx) => {
-      // Déduire les mises des deux joueurs
-      await tx.user.update({
-        where: { id: game.player1Id },
-        data: { balance: { decrement: amount } },
-      });
-      await tx.user.update({
-        where: { id: game.player2Id! },
-        data: { balance: { decrement: amount } },
-      });
-
-      // Créer la partie directement en "playing"
-      const created = await tx.diceGame.create({
-        data: {
-          player1Id: game.player1Id,
-          player2Id: game.player2Id!,
-          amount: game.amount,
-          status: "playing",
-          expiresAt: new Date(Date.now() + 30000), // 30s pour jouer
-        },
-      });
-
-      // Lier l'ancienne partie à la nouvelle (pour que le polling trouve le rematch)
-      await tx.diceGame.update({
-        where: { id: gameId },
-        data: { 
-          player1WantsRematch: false, 
-          player2WantsRematch: false,
-          rematchGameId: created.id,
-        },
-      });
-
-      return created;
-    });
-
-    return { success: true, rematchStarted: true, newGameId: newGame.id };
+  if (!user || Number(user.balance) < amount) {
+    return { success: false, error: "solde insuffisant", serverTime: Date.now() };
   }
 
-  return { success: true, rematchStarted: false };
+  // DETERMINISTIC REMATCH CODE - both players get the same code
+  const rematchCode = `RD${gameId.slice(-5)}`;
+
+  // Get opponent ID safely
+  const opponentId = isPlayer1 ? game.player2Id : game.player1Id;
+  
+  if (!opponentId || !game.player2Id) {
+    return { success: false, error: "partie 1v1 uniquement", serverTime: Date.now() };
+  }
+
+  // Check if rematch challenge already exists
+  const existingRematch = await prisma.diceGame.findFirst({
+    where: {
+      OR: [
+        { player1Id: game.player1Id, player2Id: game.player2Id },
+        { player1Id: game.player2Id, player2Id: game.player1Id },
+      ],
+      status: "pending",
+      createdAt: { gte: game.completedAt! }, // After the original game
+    },
+  });
+
+  if (existingRematch) {
+    // Check if it's ours
+    if (existingRematch.player1Id === session.user.id || existingRematch.player2Id === session.user.id) {
+      return { 
+        success: true, 
+        code: rematchCode, 
+        newGameId: existingRematch.id,
+        serverTime: Date.now()
+      };
+    }
+  }
+
+  // Create new rematch challenge with deterministic pattern
+  // Player who clicks first becomes player1, other becomes player2
+  const newGame = await prisma.diceGame.create({
+    data: {
+      player1Id: session.user.id,
+      player2Id: opponentId,
+      amount: game.amount,
+      status: "pending",
+      expiresAt: new Date(Date.now() + DICE_CONFIG.CHALLENGE_EXPIRY_MS),
+    },
+  });
+
+  return { 
+    success: true, 
+    code: rematchCode, 
+    newGameId: newGame.id,
+    serverTime: Date.now()
+  };
 }
 
 /**
- * Vérifie l'état du rematch pour une partie
+ * Vérifie l'état du rematch pour une partie - DEPRECATED, use getDiceGameState or pending challenges instead
  */
 export async function checkDiceRematchStatus(
   gameId: string
 ): Promise<{ 
   canRematch: boolean; 
-  myVote: boolean; 
-  theirVote: boolean;
   opponentId?: string;
   opponentName?: string;
   amount?: number;
   rematchGameId?: string;
+  serverTime: number;
 }> {
   const session = await auth();
   if (!session?.user?.id) {
-    return { canRematch: false, myVote: false, theirVote: false };
+    return { canRematch: false, serverTime: Date.now() };
   }
 
   const game = await prisma.diceGame.findUnique({
@@ -581,42 +664,47 @@ export async function checkDiceRematchStatus(
   });
 
   if (!game || game.status !== "completed") {
-    return { canRematch: false, myVote: false, theirVote: false };
-  }
-
-  // Si un rematch a déjà été créé, retourner l'ID directement
-  if (game.rematchGameId) {
-    return { 
-      canRematch: false, 
-      myVote: true, 
-      theirVote: true,
-      rematchGameId: game.rematchGameId,
-    };
+    return { canRematch: false, serverTime: Date.now() };
   }
 
   // Vérifier que la partie n'est pas trop vieille
   if (game.completedAt && Date.now() - game.completedAt.getTime() > 5 * 60 * 1000) {
-    return { canRematch: false, myVote: false, theirVote: false };
+    return { canRematch: false, serverTime: Date.now() };
   }
 
   const isPlayer1 = game.player1Id === session.user.id;
   const isPlayer2 = game.player2Id === session.user.id;
 
   if (!isPlayer1 && !isPlayer2) {
-    return { canRematch: false, myVote: false, theirVote: false };
+    return { canRematch: false, serverTime: Date.now() };
   }
 
-  const myVote = isPlayer1 ? game.player1WantsRematch : game.player2WantsRematch;
-  const theirVote = isPlayer1 ? game.player2WantsRematch : game.player1WantsRematch;
   const opponent = isPlayer1 ? game.player2 : game.player1;
 
+  // Check if a rematch challenge exists
+  const opponentId = isPlayer1 ? game.player2Id : game.player1Id;
+  if (!opponentId || !game.completedAt) {
+    return { canRematch: false, serverTime: Date.now() };
+  }
+
+  const existingRematch = await prisma.diceGame.findFirst({
+    where: {
+      OR: [
+        { player1Id: game.player1Id, player2Id: opponentId },
+        { player1Id: opponentId, player2Id: game.player1Id },
+      ],
+      status: "pending",
+      createdAt: { gte: game.completedAt },
+    },
+  });
+
   return { 
-    canRematch: true, 
-    myVote, 
-    theirVote,
+    canRematch: true,
     opponentId: opponent?.id,
     opponentName: opponent?.discordUsername,
     amount: Number(game.amount),
+    rematchGameId: existingRematch?.id,
+    serverTime: Date.now(),
   };
 }
 
