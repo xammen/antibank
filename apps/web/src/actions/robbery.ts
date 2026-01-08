@@ -465,6 +465,12 @@ export async function attemptAntibankRobbery(): Promise<RobberyResult> {
       }
     });
 
+    // Enregistrer dans l'historique des braquages (avec victimId = ANTIBANK_CORP)
+    await prisma.$executeRaw`
+      INSERT INTO "Robbery" (id, "robberId", "victimId", success, amount, "robberBalance", "victimBalance", "rollChance", "rollResult", "createdAt")
+      VALUES (${`heist_${Date.now()}_${Math.random().toString(36).slice(2)}`}, ${session.user.id}, ${ANTIBANK_CORP_ID}, true, ${stealAmount}, ${robberBalance}, ${antibankStats.balance}, ${successChance}, ${roll}, ${nowDate})
+    `;
+
   } else {
     // Échec! Perd X% de sa balance restante (après frais)
     const balanceAfterFee = robberBalance - entryFee;
@@ -487,6 +493,12 @@ export async function attemptAntibankRobbery(): Promise<RobberyResult> {
         description: `braquage ANTIBANK rate - penalite ${failLossPercent}%`
       }
     });
+
+    // Enregistrer dans l'historique des braquages (avec victimId = ANTIBANK_CORP)
+    await prisma.$executeRaw`
+      INSERT INTO "Robbery" (id, "robberId", "victimId", success, amount, "robberBalance", "victimBalance", "rollChance", "rollResult", "createdAt")
+      VALUES (${`heist_${Date.now()}_${Math.random().toString(36).slice(2)}`}, ${session.user.id}, ${ANTIBANK_CORP_ID}, false, ${penalty}, ${robberBalance}, ${antibankStats.balance}, ${successChance}, ${roll}, ${nowDate})
+    `;
   }
 
   // Enregistrer la tentative et reset les boosters
@@ -596,36 +608,74 @@ export async function getGlobalRobberyHistory(limit: number = 20): Promise<{
     amount: number;
     robberName: string;
     victimName: string;
+    isHeist: boolean;
     createdAt: Date;
   }>;
 }> {
-  const robberies = await prisma.$queryRaw<Array<{
+  // Récupère les braquages P2P (avec JOIN sur victim)
+  const p2pRobberies = await prisma.$queryRaw<Array<{
     id: string;
     success: boolean;
     amount: string;
     createdAt: Date;
     robberName: string;
     victimName: string;
+    victimId: string;
   }>>`
     SELECT r.id, r.success, r.amount::text, r."createdAt",
            robber."discordUsername" as "robberName",
-           victim."discordUsername" as "victimName"
+           victim."discordUsername" as "victimName",
+           r."victimId"
     FROM "Robbery" r
     JOIN "User" robber ON r."robberId" = robber.id
     JOIN "User" victim ON r."victimId" = victim.id
+    WHERE r."victimId" != ${ANTIBANK_CORP_ID}
     ORDER BY r."createdAt" DESC
     LIMIT ${limit}
   `;
 
-  return {
-    success: true,
-    history: robberies.map(r => ({
+  // Récupère les heists ANTIBANK (pas de JOIN sur victim car c'est un ID virtuel)
+  const heistRobberies = await prisma.$queryRaw<Array<{
+    id: string;
+    success: boolean;
+    amount: string;
+    createdAt: Date;
+    robberName: string;
+  }>>`
+    SELECT r.id, r.success, r.amount::text, r."createdAt",
+           robber."discordUsername" as "robberName"
+    FROM "Robbery" r
+    JOIN "User" robber ON r."robberId" = robber.id
+    WHERE r."victimId" = ${ANTIBANK_CORP_ID}
+    ORDER BY r."createdAt" DESC
+    LIMIT ${limit}
+  `;
+
+  // Combine et trie par date
+  const combined = [
+    ...p2pRobberies.map(r => ({
       id: r.id,
       success: r.success,
       amount: parseFloat(r.amount),
       robberName: r.robberName,
       victimName: r.victimName,
+      isHeist: false,
+      createdAt: r.createdAt
+    })),
+    ...heistRobberies.map(r => ({
+      id: r.id,
+      success: r.success,
+      amount: parseFloat(r.amount),
+      robberName: r.robberName,
+      victimName: ANTIBANK_CORP_NAME,
+      isHeist: true,
       createdAt: r.createdAt
     }))
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+   .slice(0, limit);
+
+  return {
+    success: true,
+    history: combined
   };
 }

@@ -42,6 +42,7 @@ interface GlobalRobberyHistoryItem {
   amount: number;
   robberName: string;
   victimName: string;
+  isHeist: boolean;
   createdAt: Date;
 }
 
@@ -484,20 +485,54 @@ export function RobberyClient({ userId, initialData }: RobberyClientProps) {
             {globalHistory.map((item) => (
               <div
                 key={item.id}
-                className="flex items-center justify-between p-2 text-[0.75rem] border-b border-[var(--line)]/30 last:border-0"
+                className={`flex items-center justify-between p-2 text-[0.75rem] border-b border-[var(--line)]/30 last:border-0 ${
+                  item.isHeist 
+                    ? item.success 
+                      ? "bg-gradient-to-r from-red-500/10 to-transparent border-l-2 border-l-red-500" 
+                      : "bg-gradient-to-r from-red-900/20 to-transparent border-l-2 border-l-red-700 animate-pulse"
+                    : ""
+                }`}
               >
-                <span>
-                  {item.success ? (
-                    <span className="text-green-400">
-                      {item.robberName} <span className="text-[var(--text-muted)]">braque</span> {item.victimName} <span className="text-green-500">+{item.amount.toFixed(2)}€</span>
-                    </span>
+                <span className="flex items-center gap-1.5 flex-wrap">
+                  {item.isHeist ? (
+                    // HEIST ANTIBANK - Style distinctif
+                    item.success ? (
+                      <>
+                        <span className="text-[0.6rem] uppercase tracking-wider px-1.5 py-0.5 bg-red-500 text-black font-bold">heist</span>
+                        <span className="text-red-400 font-medium">{item.robberName}</span>
+                        <span className="text-red-300">braque</span>
+                        <span className="text-red-500 font-bold">{item.victimName}</span>
+                        <span className="text-green-400 font-mono font-bold">+{item.amount.toFixed(2)}€</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-[0.6rem] uppercase tracking-wider px-1.5 py-0.5 border border-red-700 text-red-600">echec</span>
+                        <span className="text-red-400/80">{item.robberName}</span>
+                        <span className="text-red-500/60">tente</span>
+                        <span className="text-red-600 font-bold">{item.victimName}</span>
+                        <span className="text-red-500 font-mono">-{item.amount.toFixed(2)}€</span>
+                      </>
+                    )
                   ) : (
-                    <span className="text-red-400">
-                      {item.robberName} <span className="text-[var(--text-muted)]">rate</span> {item.victimName} <span className="text-red-500">-{item.amount.toFixed(2)}€</span>
-                    </span>
+                    // Braquage P2P classique
+                    item.success ? (
+                      <>
+                        <span className="text-green-400">{item.robberName}</span>
+                        <span className="text-[var(--text-muted)]">braque</span>
+                        <span>{item.victimName}</span>
+                        <span className="text-green-500">+{item.amount.toFixed(2)}€</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-red-400">{item.robberName}</span>
+                        <span className="text-[var(--text-muted)]">rate</span>
+                        <span>{item.victimName}</span>
+                        <span className="text-red-500">-{item.amount.toFixed(2)}€</span>
+                      </>
+                    )
                   )}
                 </span>
-                <span className="text-[var(--text-muted)] text-[0.65rem]">
+                <span className="text-[var(--text-muted)] text-[0.65rem] whitespace-nowrap ml-2">
                   {formatTimeAgo(item.createdAt)}
                 </span>
               </div>
