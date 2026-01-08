@@ -5,6 +5,7 @@ import { ClickerArea } from "@/components/clicker-area";
 import { Leaderboard } from "@/components/leaderboard";
 import { prisma } from "@antibank/db";
 import { calculateClickBonus, calculatePassiveBonus, calculateVocalBonus } from "@/lib/upgrades";
+import { getCurrentPrice } from "@/actions/dahkacoin";
 import Link from "next/link";
 
 export default async function Dashboard() {
@@ -13,11 +14,14 @@ export default async function Dashboard() {
   // Session garantie par le layout parent
   const userId = session!.user.id;
 
-  // Récupérer le user avec ses upgrades
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    include: { upgrades: true },
-  });
+  // Récupérer le user avec ses upgrades + dahkaCoins
+  const [user, dcPrice] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      include: { upgrades: true },
+    }),
+    getCurrentPrice(),
+  ]);
 
   const upgradeData = user?.upgrades.map((u) => ({
     upgradeId: u.upgradeId,
@@ -31,6 +35,8 @@ export default async function Dashboard() {
   const clickValue = 0.01 + clickBonus;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const clickerIcon = ((user as any)?.clickerIcon || "cookie") as ClickerIcon;
+  const dahkaCoins = user?.dahkaCoins ? Number(user.dahkaCoins) : 0;
+  const dcValue = dahkaCoins * dcPrice.price;
 
   return (
     <main className="min-h-screen relative">
@@ -51,18 +57,38 @@ export default async function Dashboard() {
             initialBalance={session!.user.balance}
             voiceStatus={<VoiceStatus />}
             stats={
-              <div className="grid grid-cols-3 gap-3 pt-8 border-t border-[var(--line)] opacity-60">
-                <div className="text-center p-3 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
-                  <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-1">clic</p>
-                  <p className="text-[0.8rem] font-mono">+{clickValue.toFixed(3)}€</p>
-                </div>
-                <div className="text-center p-3 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
-                  <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-1">passif</p>
-                  <p className="text-[0.8rem] font-mono">+{passiveBonus.toFixed(3)}€/m</p>
-                </div>
-                <div className="text-center p-3 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
-                  <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-1">vocal</p>
-                  <p className="text-[0.8rem] font-mono">+{vocalBonus.toFixed(3)}€/m</p>
+              <div className="flex flex-col gap-3 pt-8 border-t border-[var(--line)]">
+                {/* DahkaCoin Widget */}
+                {dahkaCoins > 0 && (
+                  <Link 
+                    href="/dahkacoin"
+                    className="flex items-center justify-between p-3 border border-purple-500/30 bg-purple-500/5 hover:border-purple-500/50 transition-all"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-purple-400">📈</span>
+                      <span className="text-[0.7rem] uppercase tracking-widest text-purple-400">dahkacoin</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-mono text-purple-400">{dahkaCoins.toFixed(2)} dc</p>
+                      <p className="text-[0.65rem] text-[var(--text-muted)]">≈ {dcValue.toFixed(2)}€</p>
+                    </div>
+                  </Link>
+                )}
+                
+                {/* Stats grid */}
+                <div className="grid grid-cols-3 gap-3 opacity-60">
+                  <div className="text-center p-3 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
+                    <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-1">clic</p>
+                    <p className="text-[0.8rem] font-mono">+{clickValue.toFixed(3)}€</p>
+                  </div>
+                  <div className="text-center p-3 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
+                    <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-1">passif</p>
+                    <p className="text-[0.8rem] font-mono">+{passiveBonus.toFixed(3)}€/m</p>
+                  </div>
+                  <div className="text-center p-3 border border-[var(--line)] bg-[rgba(255,255,255,0.01)]">
+                    <p className="text-[0.6rem] uppercase tracking-widest text-[var(--text-muted)] mb-1">vocal</p>
+                    <p className="text-[0.8rem] font-mono">+{vocalBonus.toFixed(3)}€/m</p>
+                  </div>
                 </div>
               </div>
             }

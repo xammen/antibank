@@ -1018,7 +1018,7 @@ export async function getLiveFeed(limit: number = 20): Promise<LiveTrade[]> {
   }[]>`
     SELECT 
       t.id,
-      u.name as username,
+      u."discordUsername" as username,
       t.type,
       t."dcAmount"::text,
       t."euroAmount"::text,
@@ -1051,7 +1051,7 @@ export async function getWhaleLeaderboard(limit: number = 10): Promise<WhaleHold
     avgPrice: string | null;
   }[]>`
     SELECT 
-      name as username,
+      "discordUsername" as username,
       "dahkaCoins"::text as "dcBalance",
       "dcAvgBuyPrice"::text as "avgPrice"
     FROM "User"
